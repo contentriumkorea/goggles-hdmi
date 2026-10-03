@@ -32,7 +32,7 @@ def rndis_frames(data):
             raise ValueError('Truncated RNDIS packet')
         kind, length, offset, size, oob, oob_size, oob_count, info, info_size, vc, reserved = struct.unpack_from('<11I', data)
         start = 8+offset
-        if (kind != 1 or not 44 <= length <= len(data) or start < 44 or
+        if (kind != 1 or not 44 <= length <= len(data) or start < 44 or offset % 4 or
                 size < 14 or start+size > length or any((oob,oob_size,oob_count,info,info_size,vc,reserved))):
             raise ValueError('Invalid RNDIS packet bounds/metadata')
         frames.append(data[start:start+size])

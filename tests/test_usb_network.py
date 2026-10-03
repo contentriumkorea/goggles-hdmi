@@ -2,10 +2,17 @@ import struct
 import pytest
 
 
+def aligned_message(frame):
+    from usb_network import rndis_packet
+    message=bytearray(rndis_packet(frame));message.extend(b'\0'*((-len(message))%8))
+    struct.pack_into('<I',message,4,len(message))
+    return message
+
+
 def test_rndis_coalesced_messages_and_invalid_offsets():
     from usb_network import rndis_packet, rndis_frames
     a,b=b'a'*63,b'b'*120
-    assert rndis_frames(rndis_packet(a)+rndis_packet(b))==[a,b]
+    assert rndis_frames(aligned_message(a)+rndis_packet(b))==[a,b]
     bad=bytearray(rndis_packet(a));struct.pack_into('<I',bad,8,99999)
     with pytest.raises(ValueError):rndis_frames(bad)
     with pytest.raises(ValueError):rndis_frames(rndis_packet(a)[:-1])
@@ -67,13 +74,14 @@ def ip_fragment(original,data,offset,more,identifier=None):
 
 def test_rndis_alignment_terminal_padding_and_malformed_headers():
     from usb_network import rndis_packet,rndis_frames
-    p=bytearray(rndis_packet(b'a'*61))
-    p.extend(b'\0'*3);struct.pack_into('<I',p,4,len(p))
+    p=aligned_message(b'a'*61)
     assert rndis_frames(p+rndis_packet(b'b'*60)+b'\0')==[b'a'*61,b'b'*60]
     for index,value in ((0,99),(4,43),(8,0),(12,9999),(16,1),(28,1)):
         bad=bytearray(rndis_packet(b'a'*61));struct.pack_into('<I',bad,index,value)
         with pytest.raises(ValueError):rndis_frames(bad)
     with pytest.raises(ValueError):rndis_frames(rndis_packet(b'a'*61)+b'bad')
+    bad=bytearray(rndis_packet(b'a'*61));struct.pack_into('<II',bad,8,37,60)
+    with pytest.raises(ValueError):rndis_frames(bad)
 
 
 def test_udp_zero_checksum_padding_options_and_bad_ports():

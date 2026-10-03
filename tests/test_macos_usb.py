@@ -2,6 +2,7 @@ import socket
 import struct
 from types import SimpleNamespace
 import pytest
+from test_usb_network import aligned_message
 
 
 class Interface(list):
@@ -82,7 +83,7 @@ def test_arp_datagrams_timeout_short_write_and_cleanup():
     with USBConnection(device=d,util=util) as connection:
         assert connection.peer.remote_mac==peer.mac
         peer.remote_mac=connection.peer.mac
-        d.reads.append(rndis_packet(peer.datagram(b'first'))+rndis_packet(peer.datagram(b'second')))
+        d.reads.append(aligned_message(peer.datagram(b'first'))+rndis_packet(peer.datagram(b'second')))
         assert connection.recv(65535)==b'first' and connection.recv(65535)==b'second'
         with pytest.raises(socket.timeout):connection.recv(65535)
         connection.send(b'ack')

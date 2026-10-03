@@ -30,7 +30,24 @@ jobs:
           brew install libusb
           python -m pip install --only-binary=:all: -r requirements-macos.txt
       - name: Regression tests
-        run: python -m pytest -q
+        run: |
+          python - <<'PY'
+          import threading, time
+          from PySide6.QtTest import QTest
+          from PySide6.QtWidgets import QApplication
+          app = QApplication([])
+          stop = threading.Event()
+          ticks = []
+          def worker():
+              while not stop.wait(.005): ticks.append(time.monotonic())
+          thread = threading.Thread(target=worker); thread.start()
+          QTest.qWait(100)
+          native = len(ticks); ticks.clear()
+          time.sleep(.1)
+          print('Worker ticks during qWait100ms:', native, 'during Python sleep100ms:', len(ticks))
+          stop.set(); thread.join()
+          PY
+          python -m pytest -q
       - name: Build audit packaged smoke and pkg
         run: python build_macos.py
       - uses: actions/upload-artifact@v4

@@ -14,6 +14,7 @@ qapp = QApplication.instance() or QApplication([])
 def wait_for(test):
     for _ in range(150):
         QTest.qWait(10)
+        time.sleep(.005)  # Let Python workers run even when native qWait retains the GIL.
         if test(): return
     raise AssertionError('Timed out')
 
@@ -223,7 +224,7 @@ def test_raw_output_overrides_review_and_preserves_both_looks():
         assert w.draft_settings.exposure == -1
         w.raw_button.click()
         w.apply_draft()
-        QTest.qWait(80)
+        wait_for(lambda: w.output.frame.pixelColor(80,45).red()==100)
         assert w.output.frame.pixelColor(80,45).red()==100
         w.raw_button.click()
         wait_for(lambda: w.output.frame.pixelColor(80,45).red()<80)
@@ -282,6 +283,7 @@ def test_short_receive_stall_is_captured_without_manual_trace(tmp_path):
         w.worker.start()
         for _ in range(250):
             QTest.qWait(20)
+            time.sleep(.005)
             if w.incident_store.path.exists(): break
         assert w.incident_store.path.exists(), 'Completed stall evidence should be saved automatically'
         report=json.loads(w.incident_store.path.read_text(encoding='utf-8'))
@@ -319,7 +321,7 @@ def test_slow_stutter_export_keeps_output_flowing(tmp_path, monkeypatch):
         assert time.perf_counter()-started < .25, 'Saving must return without blocking output delivery'
         assert entered.wait(1)
         before=w.last_frame
-        QTest.qWait(80)
+        wait_for(lambda:w.last_frame>before)
         assert w.last_frame>before
         release.set()
         wait_for(path.exists)

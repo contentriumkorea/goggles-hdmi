@@ -1,0 +1,51 @@
+name: Apple Silicon candidate
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['**.py', '**.spec', 'requirements-macos.txt', 'release_config_macos.json', 'assets/**', 'third_party/**', '.github/workflows/macos-arm64.yml']
+permissions:
+  contents: write
+concurrency:
+  group: macos-arm64-candidate
+  cancel-in-progress: false
+jobs:
+  native-build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_SCALE_FACTOR: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Assert native arm64
+        run: |
+          test "$(uname -m)" = arm64
+          python -c "import platform; assert platform.machine() == 'arm64'"
+      - name: Install binary dependencies
+        run: |
+          brew install libusb
+          python -m pip install --only-binary=:all: -r requirements-macos.txt
+      - name: Regression tests
+        run: python -m pytest -q
+      - name: Build audit packaged smoke and pkg
+        run: python build_macos.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-candidate
+          path: macos-release/
+          if-no-files-found: error
+      - name: Publish separate hardware-unverified prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(python -c "import json; print(json.load(open('release_config_macos.json'))['version'])")
+          TAG=macos-arm64-v${VERSION}-preview
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" macos-release/* --clobber
+          else
+            gh release create "$TAG" macos-release/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Goggles HDMI ${VERSION} — Apple Silicon preview" --notes-file docs/macos-release-notes.md
+          fi

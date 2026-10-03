@@ -1,0 +1,5 @@
+PySide6==6.11.2
+av==17.1.0
+numpy==2.5.3
+opencv-python-headless==5.0.0.93
+cryptography==50.0.1

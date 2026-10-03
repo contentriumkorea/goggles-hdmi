@@ -1,36 +1,29 @@
 # Goggles HDMI
 
-Contentrium의 Windows용 DJI 고글 영상 미리보기·HDMI 출력 프로그램입니다.
+Goggles 3 / Avata 2 live-view output with grading, stabilization and watermark authentication.
 
-## 다운로드 및 설치
+## Windows
 
-[최신 설치 파일과 변경 내역](https://github.com/contentriumkorea/goggles-hdmi/releases/latest)
+The working Windows 10/11 x64 release is **1.1.0**.
 
-Windows 10/11 64비트에서 `Goggles-HDMI-Setup-버전.exe`를 실행해 설치하세요. 사용자 계정에 설치되며 시작 메뉴에서 **Goggles HDMI**로 실행합니다.
+[Download Windows installer](https://github.com/contentriumkorea/goggles-hdmi/releases/download/v1.1.0/Goggles-HDMI-Setup-1.1.0.exe) · [Windows release](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/v1.1.0)
 
-## 주요 기능
+Existing Windows clients retain their signed `releases/latest/download/release.json` update channel. Mac assets never replace that manifest or the Windows download.
 
-- 고글 USB 영상 수신, 미리보기 및 별도 화면 출력
-- 색온도·노출·커브 조정, 선택 가능한 영상 안정화
-- 패스워드 없이도 모든 기능 사용 가능
-- 미인증 시 미리보기와 출력 화면 중앙에 콘텐츠리움 로고 표시: 30초 주기, 페이드 포함 5초
-- 설정 → 프로그램에서 패스워드 인증 시 워터마크 해제
+## Apple Silicon macOS
 
-## 프로그램 업데이트
+The native **arm64 1.2.0 preview** targets compatible Apple Silicon Macs running **macOS 15.6 or newer**. One package serves M1/M2/M3/M4 and later compatible M-series chips; it does not imply every model was physically tested. Intel Macs, Windows ARM and Linux are outside this release.
 
-1. 1.1.0부터 시작 시와 실행 중 15분마다 새 버전을 확인합니다.
-2. 새 버전이 있으면 메인 창에 알림과 **지금 업데이트** 버튼이 표시됩니다.
-3. 버튼을 누르면 다운로드와 검증을 진행합니다. 이 동안 영상 출력은 계속됩니다.
-4. 설치 시작 시 영상 출력을 종료하고, 설치 후 프로그램을 다시 실행합니다. USB 연결과 HDMI 출력은 사용자가 다시 시작합니다.
+[Apple Silicon preview release](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/macos-arm64-v1.2.0-preview) · [Installation and hardware test details](docs/macos-release-notes.md)
 
-보정 설정과 인증은 유지됩니다. 방송·촬영 중에는 작업을 마친 뒤 업데이트하세요. 자동 확인은 설정 → 프로그램에서 끌 수 있습니다. 인터넷 연결이 없으면 다음 확인 시점에 재시도하며, `.ghupdate` 파일로 수동 업데이트할 수도 있습니다.
+**Hardware validation is still required.** Native CI validates the packaged application; no Mac/Goggles 3/external display combination has yet been tested. The app is ad-hoc signed, the pkg is unsigned, and this preview is not Apple notarized. macOS may require its per-app Open Anyway action when offered.
 
-기존 1.0.x 또는 포터블 프로그램 사용자는 최신 설치 파일을 한 번 설치하면 이후 자동 알림을 받을 수 있습니다.
+Enable OTG wired computer connection and live-view sharing on the goggles, connect directly using a data cable, and close other DJI USB clients. The macOS backend uses libusb RNDIS in userspace and never automatically detaches or resets drivers. Cmd+D/Ctrl+D/Escape release output while the application is active. Authentication persistence uses Keychain; updates open Apple's Installer after signature/hash/size checks and still require OS confirmation.
 
-## 연결 참고
+## Source and builds
 
-고글의 영상 공유 설정과 USB 데이터 연결이 필요합니다. USB 모드 및 Windows 네트워크 어댑터 설정에 따라 연결 절차가 달라질 수 있습니다. 입력 프레임률은 기체·고글이 전달하는 영상에 따라 달라지며 HDMI 화면 주사율과는 별개입니다.
+The repository contains the selected application source, public password verifier and Ed25519 verification key, resources, tests and native build workflow. Private release signing keys, actual passwords, personal settings, footage, diagnostic captures and local backups are excluded. Publishing source does not add a new open-source license grant; third-party notices cover bundled dependencies.
 
-문제 제보는 [Issues](https://github.com/contentriumkorea/goggles-hdmi/issues)에 남겨주세요. 로그를 공유하기 전 개인 정보가 포함되어 있지 않은지 확인하세요.
+For a native Apple Silicon build use Python 3.12 on macOS 15.6+, install Homebrew `libusb`, then install `requirements-macos.txt` with binary wheels and run `python -m pytest -q` and `python build_macos.py`. The workflow asserts arm64, checks all Mach-O slices/deployment targets/dependencies, verifies ad-hoc signing, runs frozen H.264/pipeline/UI/no-device smoke checks, and creates a separate prerelease pkg. No publisher signing private key is sent to CI.
 
-이 저장소는 설치 파일과 사용 안내를 공개 배포합니다. 제3자 구성 요소의 고지와 라이선스는 설치 폴더의 `ThirdPartyNotices`에 포함됩니다.
+Windows uses the separate `requirements.txt`, `GogglesHDMI.spec`, Inno Setup installer and local `build_release.py`. Existing Windows binaries are retained. Runtime libraries remain shared and their license notices are included in packaged builds.

@@ -1,0 +1,15 @@
+{
+  "product": "GogglesHDMI-Next",
+  "version": "1.2.0",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "channel": "macos-preview",
+  "github_repository": "contentriumkorea/goggles-hdmi",
+  "update_url": "https://raw.githubusercontent.com/contentriumkorea/goggles-hdmi/main/channels/macos-arm64.json",
+  "password": {
+    "salt": "0e13fed62f80c93943eac3b6008a1866fb81731a2a8d9e29",
+    "iterations": 600000,
+    "digest": "ad6bdeec7b2a25c2f34cd5edf3b7ede09b59aa97e33375ccc636105666f4bbc9"
+  },
+  "update_public_key": "1a65c5fbadc2b1cdf36f14f71f60e190becf8a10a9d2564e80bd1c3be24bbb63"
+}

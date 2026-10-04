@@ -4,11 +4,13 @@ Goggles 3 / Avata 2 live-view output with grading, stabilization and watermark a
 
 ## Windows
 
-The working Windows 10/11 x64 release is **1.1.0**.
+The published Windows 10/11 x64 release is **1.1.0**. A Windows **1.2.0** installer adds copyable troubleshooting information after package validation.
 
 [Download Windows installer](https://github.com/contentriumkorea/goggles-hdmi/releases/download/v1.1.0/Goggles-HDMI-Setup-1.1.0.exe) · [Windows release](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/v1.1.0)
 
 Existing Windows clients retain their signed `releases/latest/download/release.json` update channel. Mac assets never replace that manifest or the Windows download.
+
+The **문제 정보 복사** button works before connecting and while retrying. It copies stable `GH-*` error codes, observed connection stages, software/OS details and counters for pasting into a support chat. It uses cached state, never sends data online, and excludes passwords, serial numbers, personal paths, raw logs and video data. Recent errors remain available after recovery.
 
 ## Apple Silicon macOS
 

@@ -11,6 +11,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from usb_network import NetworkPeer, rndis_packet, rndis_frames
+from support_report import SupportError,issue_from_exception,record_success
 
 VID, PID = 0x2ca3, 0x0020
 MAX_TRANSFER = 1024*1024
@@ -21,7 +22,7 @@ def descriptors(raw):
     while raw:
         size = raw[0]
         if size < 2 or size > len(raw):
-            raise OSError('USB descriptor length invalid')
+            raise SupportError('GH-USB-DESCRIPTOR','discovery')
         yield raw[:size]
         raw = raw[size:]
 
@@ -58,27 +59,32 @@ def select_interfaces(config):
             if len(incoming) == len(outgoing) == len(interrupt) == 1:
                 candidates.append(Layout(control,data,incoming[0],outgoing[0],interrupt[0]))
     if len(candidates) != 1:
-        raise OSError('고글 RNDIS 인터페이스 구성이 불명확합니다. USB 진단을 저장하세요.')
+        raise SupportError('GH-USB-DESCRIPTOR','discovery')
     return candidates[0]
 
 
 def usb_backend():
-    import usb.backend.libusb1
+    try:
+        import usb.backend.libusb1
+    except ImportError as exc:
+        raise SupportError('GH-USB-DEPENDENCY','discovery') from exc
     # Frozen build explicitly bundles libusb, avoiding a Homebrew requirement.
     root = Path(getattr(sys,'_MEIPASS',Path(__file__).parent))
     library = root/'libusb-1.0.dylib'
     backend = usb.backend.libusb1.get_backend(find_library=lambda name:str(library)) if library.is_file() else usb.backend.libusb1.get_backend()
     if backend is None:
-        raise OSError('libusb를 찾을 수 없습니다. macOS 배포 패키지를 다시 설치하세요.')
+        raise SupportError('GH-USB-DEPENDENCY','discovery')
     return backend
 
 
 def find_device():
-    import usb.core
+    try:
+        import usb.core
+    except ImportError as exc:
+        raise SupportError('GH-USB-DEPENDENCY','discovery') from exc
     devices = list(usb.core.find(find_all=True,idVendor=VID,idProduct=PID,backend=usb_backend()))
     if len(devices) != 1:
-        raise OSError('고글 USB 연결 대기 · 데이터 케이블과 고글 OTG 설정을 확인하세요.' if not devices else
-                      '고글 USB 장치가 여러 개입니다. 하나만 연결하세요.')
+        raise SupportError('GH-USB-MISSING' if not devices else 'GH-USB-DESCRIPTOR','discovery')
     return devices[0]
 
 
@@ -86,11 +92,8 @@ def is_timeout(exc):
     return isinstance(exc,(TimeoutError,socket.timeout)) or getattr(exc,'errno',None) in (60,110) or getattr(exc,'backend_error_code',None) == -7
 
 
-def usb_error(exc):
-    code = getattr(exc,'backend_error_code',None)
-    if code in (-3,-6) or getattr(exc,'errno',None) in (13,16):
-        return OSError('macOS가 고글 USB 인터페이스 사용을 거부했습니다. DJI Assistant 등 장치 사용 앱을 종료하고 다시 연결하세요. 드라이버를 강제로 해제하지 않습니다.')
-    return OSError('고글 USB 연결 실패: '+str(exc))
+def usb_error(exc, stage='discovery'):
+    return issue_from_exception(exc,stage)
 
 
 class RNDISControl:
@@ -175,15 +178,17 @@ class RNDISControl:
 
 
 class USBConnection:
-    def __init__(self, *, device=None, util=None, stop=None, state=lambda message:None):
+    def __init__(self, *, device=None, util=None, stop=None, state=lambda message:None,stats=None):
         self.device,self.util,self.stop,self.state = device,util,stop,state
         self.claimed = []
         self.control = None
         self.pending = deque()
         self.last_keepalive = 0
+        self.stats = stats if stats is not None else {}
 
     def __enter__(self):
         try:
+            self.stats['stage'] = 'discovery'
             if self.device is None:
                 self.device = find_device()
             if self.util is None:
@@ -192,6 +197,7 @@ class USBConnection:
             self.state('USB 장치 확인 · RNDIS 인터페이스 연결 중')
             config = self.device.get_active_configuration()
             self.layout = select_interfaces(config)
+            self.stats['stage'] = 'claim'
             for interface in (self.layout.control,self.layout.data):
                 number = interface.bInterfaceNumber
                 self.util.claim_interface(self.device,number)
@@ -199,10 +205,13 @@ class USBConnection:
                 if interface.bAlternateSetting or sum(i.bInterfaceNumber == number for i in config) > 1:
                     self.device.set_interface_altsetting(interface=number,alternate_setting=interface.bAlternateSetting)
             self.control = RNDISControl(self.device,self.layout.control.bInterfaceNumber,self.stop)
+            self.stats['stage'] = 'rndis_init'
             self.transfer,self.mac,self.mtu = self.control.initialize()
+            record_success(self.stats,'rndis_init',recovered=False)
             self.last_keepalive = time.monotonic()
             self.peer = NetworkPeer('192.168.60.1','192.168.60.2',12346,9003,self.mac)
             self.state('RNDIS 초기화 완료 · 고글 ARP 응답 확인 중')
+            self.stats['stage'] = 'arp'
             deadline,next_request = time.monotonic()+3,0
             while self.peer.remote_mac is None and time.monotonic() < deadline:
                 self._cancelled()
@@ -211,13 +220,14 @@ class USBConnection:
                     next_request = time.monotonic()+.3
                 self._read()
             if self.peer.remote_mac is None:
-                raise OSError('고글 ARP 응답 없음 · 고글 OTG / 유선 컴퓨터 연결 설정을 확인하세요.')
+                raise SupportError('GH-ARP-TIMEOUT','arp')
+            record_success(self.stats,'arp',recovered=False)
             self.state('USB RNDIS / ARP 확인 · 고글 영상 패킷 대기')
             return self
         except Exception as exc:
             self.close()
             if isinstance(exc,OSError):
-                raise usb_error(exc) from exc
+                raise usb_error(exc,self.stats.get('stage','discovery')) from exc
             raise
 
     def _cancelled(self):
@@ -231,7 +241,7 @@ class USBConnection:
         try:
             written = self.device.write(self.layout.bulk_out,payload,timeout=100)
         except OSError as exc:
-            raise usb_error(exc) from exc
+            raise usb_error(exc,self.stats.get('stage','video')) from exc
         if written != len(payload):
             raise OSError('Short RNDIS bulk write')
 
@@ -241,14 +251,14 @@ class USBConnection:
         except OSError as exc:
             if is_timeout(exc):
                 return
-            raise usb_error(exc) from exc
+            raise usb_error(exc,self.stats.get('stage','video')) from exc
         for frame in rndis_frames(data):
             payload,reply = self.peer.receive(frame)
             if reply:
                 self._write(reply)
             if payload is not None:
                 if len(self.pending) >= 256:
-                    raise OSError('USB video receive queue overflow')
+                    raise SupportError('GH-VIDEO-GAP','video')
                 self.pending.append(payload)
 
     def send(self, data):
@@ -258,6 +268,7 @@ class USBConnection:
 
     def recv(self, size):
         self._cancelled()
+        self.stats['stage'] = 'video'
         if time.monotonic()-self.last_keepalive > 2:
             self.control.keepalive()
             self.last_keepalive = time.monotonic()

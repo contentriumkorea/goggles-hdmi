@@ -10,6 +10,8 @@ Connect Goggles 3 directly using a USB data cable. Enable OTG wired computer con
 
 Use an extended external display and select it for output. Cmd+D / Ctrl+D and Escape release output while this app is active; the control window also has an output-stop button. These are app shortcuts, not macOS global hotkeys. Display sleep inhibition lasts only while output is active. Saved watermark authentication uses macOS Keychain; denial allows session-only authentication.
 
-Windows 1.1.0 remains the repository's stable/latest release with its original download and update manifest. This Mac preview uses a separate signed arm64 update channel. Apple's Installer requires OS confirmation after a verified update download; it does not run silently.
+Windows uses the repository's stable/latest release and retains the historical 1.1.0 download. This Mac preview uses a separate signed arm64 update channel and never becomes the Windows latest update. Apple's Installer requires OS confirmation after a verified update download; it does not run silently.
+
+The always-available **문제 정보 복사** button copies observed stages and stable GH-* error codes, software/OS details, transport counters and recent sanitized issues for pasting into a support chat. It works before connection or diagnosis and does not query devices or send information online. Passwords, serials, personal paths, arbitrary URLs, raw logs and video data are excluded.
 
 Hardware acceptance still needed: USB enumeration → safe interface claim → RNDIS → ARP → DJI packets → decoded dimensions → external output; repeated connect/disconnect and quit/reopen; Keychain authentication; grading/stabilization; physical display modes; release action and a ten-minute live run. Measure input frame rate separately from output refresh.

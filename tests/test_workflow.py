@@ -2,6 +2,7 @@
 import threading
 import time
 import json
+import itertools
 import av
 import numpy as np
 from PySide6.QtWidgets import QApplication
@@ -274,11 +275,10 @@ def test_short_receive_stall_is_captured_without_manual_trace(tmp_path):
         w.incident_store = IncidentStore(tmp_path/'stutter-latest.json')
         w.mode = 'stream'
         def frames():
-            for i in range(125):
+            for i in itertools.count():
                 if w.stop_event.is_set(): return
                 yield av.VideoFrame.from_ndarray(np.full((90,160,3),100,np.uint8),format='rgb24')
                 w.stop_event.wait(.22 if i==42 else 1/30)
-            w.stop_event.wait(2)
         w.worker = threading.Thread(target=w.receive_frames,args=(frames(),w.stop_event),daemon=True)
         w.worker.start()
         for _ in range(250):

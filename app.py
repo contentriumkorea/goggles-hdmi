@@ -25,6 +25,7 @@ from pipeline import receive_frames as run_pipeline
 from licensing import LicenseState, CONFIG
 from watermark import Watermark
 from platform_support import state_directory
+from support_report import build_report,issue_record
 
 
 def screen_pixel_size(screen):
@@ -326,6 +327,10 @@ class MainWindow(QMainWindow):
         self.last_status_update = 0
         self.processing_stats = {'ms': 0., 'dropped': 0, 'processed': 0, 'tracking': '꺼짐'}
         self.usb_stats = {}
+        self.support_history = deque(maxlen=10)
+        self.component_issues = {}
+        self.cached_diagnosis = None
+        self.support_output = {}
         self.usb_note = None
         self.last_usb_note = None
         self.usb_auto_output_pending = False
@@ -662,8 +667,9 @@ class MainWindow(QMainWindow):
         for i, screen in enumerate(QApplication.screens()):
             width, height = screen_pixel_size(screen)
             name = screen.model().strip() or f'화면 {i+1}'
-            self.screens.addItem(f'{name} · {width}×{height}', screen.name())
-            self.screens.setItemData(i, f'{screen.name()} · {width}×{height} 실제 픽셀', Qt.ToolTipRole)
+            dimensions = f'{width}×{height} 실제 픽셀' if width and height else '픽셀 모드 확인 불가'
+            self.screens.addItem(f'{name} · {dimensions}', screen.name())
+            self.screens.setItemData(i, f'{screen.name()} · {dimensions}', Qt.ToolTipRole)
         idx = self.screens.findData(old)
         if idx >= 0:
             self.screens.setCurrentIndex(idx)
@@ -696,11 +702,15 @@ class MainWindow(QMainWindow):
         if not 0 <= index < len(screens):
             return
         if not self.output.lock_output():
+            self.record_component_issue('output','GH-OUTPUT','output')
             self.log('Ctrl+D가 다른 프로그램에 등록되어 전체화면을 열지 못했습니다. 단축키 충돌을 해제하세요.')
             return
         if not self.output.keep_awake(True):
             self.log('화면 꺼짐 방지 요청 실패. 전원 설정을 확인하세요.')
         self.output_target = screens[index].name()
+        width,height = screen_pixel_size(screens[index])
+        self.support_output = {'width':width,'height':height,'refresh_hz':screens[index].refreshRate()}
+        self.component_issues.pop('output',None)
         self.output_pending = None
         self.output.setGeometry(screens[index].geometry())
         self.output.show()
@@ -746,7 +756,7 @@ class MainWindow(QMainWindow):
             self.log('수신 중입니다. 소스를 바꾸려면 정지를 먼저 누르세요.')
             return
         self.stop_event = threading.Event()
-        self.usb_stats = {}
+        self.usb_stats = {'issue_history':self.support_history,'stage':'discovery'}
         with self.lock:
             self.latest = self.finished = self.usb_note = None
         self.frames = 0
@@ -822,6 +832,9 @@ class MainWindow(QMainWindow):
 
     def stop(self):
         self.stop_event.set()
+        with self.lock:
+            self.usb_stats['active_issue'] = None
+            self.usb_stats['stage'] = 'idle'
         self.stutter.stop()
         self.mode = 'idle'
         self.refresh_stutter()
@@ -976,7 +989,9 @@ class MainWindow(QMainWindow):
         fault = ' · 보정 오류: 진단 확인' if self.effect_fault or self.preview_fault else ''
         output_summary = 'HDMI 출력 중' if self.output.locked else ('모니터 재연결 대기' if self.output_pending else 'HDMI 꺼짐')
         if self.raw_output: output_summary += ' · 원본'
-        self.summary_status.setText(f'{source} · {dimensions} · 수신 {rx:.1f} fps · {output_summary}{fault}{self.stutter_summary}    ›')
+        issue = self.usb_stats.get('active_issue')
+        issue_summary = (' · ['+issue['code']+'] '+issue['message']) if issue and self.mode == 'usb' else ''
+        self.summary_status.setText(f'{source} · {dimensions} · 수신 {rx:.1f} fps · {output_summary}{fault}{self.stutter_summary}{issue_summary}    ›')
 
     def diagnose(self):
         self.diag_button.setEnabled(False)
@@ -984,6 +999,8 @@ class MainWindow(QMainWindow):
         def task():
             try:
                 data = device_diagnostics()
+                with self.lock:
+                    self.cached_diagnosis = data
                 text = json.dumps(data, ensure_ascii=False, indent=2)
             except Exception as exc:
                 text = '진단 실패: ' + type(exc).__name__
@@ -992,17 +1009,38 @@ class MainWindow(QMainWindow):
         threading.Thread(target=task, daemon=True).start()
 
     def save_report(self):
-        if not self.diag_report:
-            self.log('먼저 고글 USB 연결 진단을 실행하세요.')
-            return
         path, _ = QFileDialog.getSaveFileName(self, '진단 결과 저장',
             time.strftime("%Y-%m-%d %H'%M 고글 연결 진단.txt"), '텍스트 (*.txt)')
         if path:
             try:
-                Path(path).write_text(self.diag_report, encoding='utf-8')
+                Path(path).write_text(self.problem_report(), encoding='utf-8')
                 self.log('진단 결과를 저장했습니다.')
             except OSError:
                 self.log('저장 실패. 쓰기 가능한 경로를 선택하세요.')
+
+    def record_component_issue(self,component,code,stage):
+        with self.lock:
+            self.component_issues[component] = issue_record(code,stage)
+            record = self.component_issues[component]
+        self.log('['+record['code']+'] '+record['message'])
+
+    def problem_report(self):
+        with self.lock:
+            stats = dict(self.usb_stats)
+            stats['issue_history'] = list(self.support_history)
+            if not stats['issue_history']:
+                stats['issue_history'] = list(self.usb_stats.get('issue_history',[]))
+            diagnosis = self.cached_diagnosis
+            components = dict(self.component_issues)
+            output = dict(self.support_output)
+            last_frame,mode = self.last_frame,self.mode
+        return build_report(version=CONFIG['version'],mode=mode,stats=stats,diagnosis=diagnosis,
+                            components=components,output=output,last_frame=last_frame)
+
+    def copy_problem_info(self):
+        QApplication.clipboard().setText(self.problem_report())
+        self.log('문제 정보 복사됨 · 채팅에 붙여넣으세요')
+        self.statusBar().showMessage('문제 정보 복사됨 · 채팅에 붙여넣으세요',5000)
 
     def show_guide(self):
         if sys.platform == 'darwin':

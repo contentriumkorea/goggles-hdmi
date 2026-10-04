@@ -1,0 +1,135 @@
+"""Bounded, local, allowlisted troubleshooting snapshot. No raw logs or secrets."""
+import datetime
+import json
+import math
+import re
+import platform as host_platform
+import sys
+import time
+
+MESSAGES = {
+    'GH-USB-MISSING':'고글 USB 장치를 찾지 못했습니다. 데이터 케이블과 OTG 설정을 확인하세요.',
+    'GH-USB-DEPENDENCY':'USB 수신 라이브러리를 찾지 못했습니다. 배포 패키지를 다시 설치하세요.',
+    'GH-USB-ACCESS':'USB 접근이 거부되었습니다. 장치 사용 앱과 접근 권한을 확인하세요.',
+    'GH-USB-BUSY':'USB 또는 수신 주소가 사용 중입니다. 다른 고글 수신 앱을 종료하세요.',
+    'GH-USB-DESCRIPTOR':'지원하지 않거나 불명확한 USB 인터페이스입니다. 문제 정보를 복사하세요.',
+    'GH-USB-DISCONNECTED':'USB 장치 연결이 끊겼습니다. 다시 연결하세요.',
+    'GH-USB-CONFIG':'고글 USB 주소 설정이 필요합니다. USB 최초 설정을 실행하세요.',
+    'GH-RNDIS-INIT':'고글 RNDIS 초기화 응답을 확인하지 못했습니다. USB를 다시 연결하세요.',
+    'GH-ARP-TIMEOUT':'고글의 USB 네트워크 응답이 없습니다. OTG 유선 컴퓨터 연결을 확인하세요.',
+    'GH-TRANSPORT-IO':'USB 영상 통신 실패 · 다시 연결 중입니다.',
+    'GH-VIDEO-TIMEOUT':'영상 패킷 대기 시간이 초과되었습니다. 라이브뷰 공유와 기체 영상을 확인하세요.',
+    'GH-VIDEO-GAP':'영상 패킷 누락 또는 수신 대기열 초과 · 다시 연결 중입니다.',
+    'GH-DECODE':'사용 가능한 영상 프레임을 복원하지 못했습니다. 다시 연결 중입니다.',
+    'GH-OUTPUT':'출력 화면을 열지 못했습니다. 화면 연결과 단축키 상태를 확인하세요.',
+    'GH-UPDATE-VERIFY':'업데이트 서명 또는 파일 검증에 실패했습니다.',
+    'GH-UPDATE-IO':'업데이트 다운로드 또는 설치 프로그램 실행에 실패했습니다.',
+    'GH-UNKNOWN':'연결 작업에 실패했습니다. 문제 정보를 복사하세요.'}
+STAGES = {'idle','discovery','network_config','socket_bind','claim','rndis_init','arp','session','video','decode','output','update'}
+COUNTERS = ('sessions','retries','invalid_packets','video_bytes','ordered_bytes','parsed_frames','frames',
+            'warmup_frames','intra_refresh_frames','decode_errors','width','height')
+
+
+def utc_now():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+
+
+class SupportError(OSError):
+    def __init__(self, code, stage, original=None):
+        self.code = code if code in MESSAGES else 'GH-UNKNOWN'
+        self.stage = stage if stage in STAGES else 'discovery'
+        self.os_error = next((value for value in (getattr(original,'winerror',None),getattr(original,'errno',None),
+            getattr(original,'backend_error_code',None)) if type(value) is int and -65535 <= value <= 65535),None)
+        super().__init__(MESSAGES[self.code])
+
+
+def issue_from_exception(exc, stage):
+    if isinstance(exc,SupportError):
+        return exc
+    if getattr(exc,'winerror',None) == 10048 or getattr(exc,'errno',None) in (16,48,98) or getattr(exc,'backend_error_code',None) == -6:
+        code = 'GH-USB-BUSY'
+    elif getattr(exc,'errno',None) in (1,13) or getattr(exc,'backend_error_code',None) == -3:
+        code = 'GH-USB-ACCESS'
+    elif getattr(exc,'errno',None) == 19 or getattr(exc,'backend_error_code',None) == -4:
+        code = 'GH-USB-DISCONNECTED'
+    elif stage == 'rndis_init':
+        code = 'GH-RNDIS-INIT'
+    elif stage == 'decode':
+        code = 'GH-DECODE'
+    elif isinstance(exc,OSError):
+        code = 'GH-TRANSPORT-IO'
+    else:
+        code = 'GH-UNKNOWN'
+    return SupportError(code,stage,exc)
+
+
+def issue_record(code,stage,exc=None):
+    issue = exc if isinstance(exc,SupportError) else SupportError(code,stage,exc)
+    return {'time_utc':utc_now(),'code':issue.code,'stage':issue.stage,'message':MESSAGES[issue.code],
+            'os_error':issue.os_error}
+
+
+def record_issue(stats, code, stage, exc=None, *, active=True):
+    issue = issue_record(code,stage,exc)
+    history = stats.setdefault('issue_history',[])
+    history.append(issue)
+    if isinstance(history,list):
+        del history[:-10]
+    if active:
+        stats['active_issue'] = issue
+    stats['stage'] = stage
+    return issue
+
+
+def record_success(stats,stage, *, recovered=True):
+    stats['stage'] = stage
+    stats['last_successful_stage'] = stage
+    if recovered:
+        stats['active_issue'] = None
+
+
+def safe_issue(value):
+    if not isinstance(value,dict) or value.get('code') not in MESSAGES:
+        return None
+    result = {'code':value['code'],'stage':value.get('stage') if value.get('stage') in STAGES else 'idle',
+              'message':MESSAGES[value['code']]}
+    stamp = value.get('time_utc')
+    if isinstance(stamp,str) and len(stamp) <= 40:
+        try:
+            result['time_utc'] = datetime.datetime.fromisoformat(stamp).isoformat(timespec='seconds')
+        except ValueError:
+            pass
+    error = value.get('os_error')
+    if type(error) is int and -65535 <= error <= 65535:
+        result['os_error'] = error
+    return result
+
+
+def build_report(*, version, platform=None, os_version=None, architecture=None, mode='idle',stats=None,
+                 diagnosis=None,components=None,output=None,last_frame=0,logs=None):
+    stats = stats or {}
+    counters = {key:value for key in COUNTERS if type(value := stats.get(key)) in (int,float) and
+                math.isfinite(value) and 0 <= value <= 2**63}
+    stages = {key:stats.get(key) if stats.get(key) in STAGES else 'not_started' for key in ('stage','last_successful_stage')}
+    stages['stage'] = 'idle' if mode == 'idle' else stages['stage']
+    selected_platform = platform or sys.platform
+    selected_os = os_version or (host_platform.mac_ver()[0] if selected_platform == 'darwin' else host_platform.version())
+    selected_arch = architecture or host_platform.machine()
+    report = {'schema_version':1,'captured_utc':utc_now(),'app_version':version if isinstance(version,str) and re.fullmatch(r'\d{1,4}\.\d{1,4}\.\d{1,4}',version) else 'unknown',
+        'build':'unknown','platform':selected_platform if selected_platform in ('darwin','win32') else 'unknown',
+        'os_version':selected_os if isinstance(selected_os,str) and re.fullmatch(r'[0-9.]{1,40}',selected_os) else 'unknown',
+        'architecture':selected_arch if selected_arch in ('arm64','aarch64','x86_64','AMD64','x86','i386') else 'unknown',
+        'source_mode':mode if mode in ('idle','usb','stream','pattern') else 'unknown',
+        **stages,'active_issue':safe_issue(stats.get('active_issue')),'counters':counters,
+        'recent_issues':[safe for item in list(stats.get('issue_history',[]))[-10:] if (safe := safe_issue(item))],
+        'components':{key:safe for key,item in (components or {}).items() if key in ('output','update') and (safe := safe_issue(item))},
+        'device_detail':'not_collected','protocol':{'vid':'2CA3','pid':'0020','host':'192.168.60.1:12346','goggles':'192.168.60.2:9003'}}
+    if isinstance(diagnosis,dict):
+        report['device_detail'] = {'collected':True,'matching_devices':min(100,len(diagnosis.get('DJIDevices',[]))) if isinstance(diagnosis.get('DJIDevices'),list) else 'unknown',
+                                   'interfaces':min(100,len(diagnosis.get('interfaces',[]))) if isinstance(diagnosis.get('interfaces'),list) else 'unknown'}
+    report['output'] = {key:value for key,value in (output or {}).items() if key in ('width','height','refresh_hz') and
+        type(value) in (int,float) and math.isfinite(value) and 0 <= value <= 100000}
+    now = time.monotonic()
+    for name,stamp in (('packet_age_seconds',stats.get('last_packet_time')),('frame_age_seconds',last_frame)):
+        report[name] = round(max(0,now-stamp),3) if type(stamp) in (int,float) and 0 < stamp <= now else 'unknown'
+    return 'Goggles HDMI support report\n'+json.dumps(report,ensure_ascii=False,indent=2)

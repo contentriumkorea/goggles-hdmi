@@ -62,7 +62,8 @@ jobs:
           VERSION=$(python -c "import json; print(json.load(open('release_config_macos.json'))['version'])")
           TAG=macos-arm64-v${VERSION}-preview
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" macos-release/* --clobber
+            echo 'This version is already published. Increment the macOS version before publishing new binaries.'
+            exit 1
           else
             gh release create "$TAG" macos-release/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Goggles HDMI ${VERSION} — Apple Silicon preview" --notes-file docs/macos-release-notes.md
           fi

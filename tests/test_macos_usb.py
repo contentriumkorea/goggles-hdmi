@@ -74,6 +74,28 @@ def test_initialization_failure_releases_partial_claims():
     assert util.claims==[2] and util.releases==[2] and util.disposed
 
 
+@pytest.mark.parametrize('errno,code',[(13,'GH-USB-ACCESS'),(16,'GH-USB-BUSY'),(19,'GH-USB-DISCONNECTED')])
+def test_claim_failures_keep_stable_code_stage_and_safe_message(errno,code):
+    from macos_usb import USBConnection
+    from support_report import SupportError
+    d=Device();util=Util()
+    def denied(*args):raise OSError(errno,'/Users/alice/secret-password')
+    util.claim_interface=denied
+    with pytest.raises(SupportError) as caught:
+        with USBConnection(device=d,util=util):pass
+    assert caught.value.code==code and caught.value.stage=='claim' and 'secret-password' not in str(caught.value)
+
+
+def test_failed_initialization_keeps_rndis_stage():
+    from macos_usb import USBConnection
+    from support_report import SupportError
+    d=Device();d.responses.append(struct.pack('<4I',0x80000002,16,1,0xc0000001))
+    util=Util()
+    with pytest.raises(SupportError) as caught:
+        with USBConnection(device=d,util=util):pass
+    assert caught.value.code=='GH-RNDIS-INIT' and caught.value.stage=='rndis_init' and util.releases==[3,2]
+
+
 def test_arp_datagrams_timeout_short_write_and_cleanup():
     from macos_usb import USBConnection
     from usb_network import NetworkPeer,rndis_packet,rndis_frames

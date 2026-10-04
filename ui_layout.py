@@ -66,6 +66,8 @@ def build_main_ui(w, surface_class):
     w.output_button = button('출력 시작', w.toggle_output, bar)
     w.output_button.setToolTip('선택한 화면에 전체화면 출력 · Ctrl+D로 출력 종료')
     w.settings_button = button('설정', lambda: w.show_settings(0), bar)
+    w.copy_problem_button = button('문제 정보 복사',w.copy_problem_info,bar)
+    w.copy_problem_button.setToolTip('현재 상태와 오류 코드를 복사합니다. 채팅에 붙여넣으세요.')
     layout.addLayout(bar)
     w.update_notice = QWidget()
     notice = QHBoxLayout(w.update_notice)

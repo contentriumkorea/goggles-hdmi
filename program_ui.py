@@ -229,8 +229,10 @@ class ProgramPanel(QWidget):
 
     def checked(self, release, error):
         if error:
+            self.window.record_component_issue('update','GH-UPDATE-VERIFY' if isinstance(error,ValueError) else 'GH-UPDATE-IO','update')
             self.update_status.setText('업데이트 확인: '+str(error))
         elif release is None:
+            self.window.component_issues.pop('update',None)
             self.online_release = None
             discard_staged(self.pending)
             self.pending = None
@@ -257,11 +259,13 @@ class ProgramPanel(QWidget):
 
     def staged(self, staged, error):
         if error:
+            self.window.record_component_issue('update','GH-UPDATE-VERIFY' if isinstance(error,ValueError) else 'GH-UPDATE-IO','update')
             self.one_click = False
             self.pending = None
             self.update_status.setText('업데이트 준비 실패: '+str(error))
             self.window.update_label.setText('업데이트 준비 실패 · 다시 시도하세요. '+str(error))
         else:
+            self.window.component_issues.pop('update',None)
             self.pending = staged
             message = staged.release['version']+' 버전 준비 완료 · 서명과 파일 검증 완료'
             if not getattr(sys,'frozen',False): message += '\n설치된 프로그램에서 설치를 시작하세요.'
@@ -280,6 +284,7 @@ class ProgramPanel(QWidget):
 
     def launch_installer(self, staged, error):
         if error:
+            self.window.record_component_issue('update','GH-UPDATE-VERIFY','update')
             discard_staged(staged)
             self.pending = None
             self.update_status.setText('설치를 시작하지 못했습니다: '+str(error))
@@ -288,6 +293,7 @@ class ProgramPanel(QWidget):
         try:
             handoff_installer(staged)
         except (OSError,ValueError) as exc:
+            self.window.record_component_issue('update','GH-UPDATE-VERIFY' if isinstance(exc,ValueError) else 'GH-UPDATE-IO','update')
             self.update_status.setText('설치 프로그램 실행 실패: '+str(exc))
             self.window.update_label.setText(self.update_status.text())
             return

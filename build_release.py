@@ -42,6 +42,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--compiler',type=Path,default=Path(os.environ['LOCALAPPDATA'])/'GogglesHDMI-BuildTools/InnoSetup6/ISCC.exe')
     parser.add_argument('--output',type=Path)
+    parser.add_argument('--dist',type=Path,default=ROOT/'dist/Goggles HDMI',help='Validated frozen build directory')
     parser.add_argument('--download-url',default='')
     parser.add_argument('--notes',default='Windows 설치, 프로그램 업데이트, 콘텐츠리움 워터마크 및 패스워드 인증.')
     parser.add_argument('--qa',action='store_true',help='Separate install identity; not for distribution')
@@ -51,7 +52,7 @@ def main():
             '/releases/download/v'+CONFIG['version']+'/Goggles-HDMI-Setup-'+CONFIG['version']+'.exe')
     args.output = args.output or ((ROOT/'qa/installers' if args.qa else ROOT.parent/'releases')/CONFIG['version'])
     if args.download_url: validate_https(args.download_url)
-    dist = ROOT/'dist/Goggles HDMI'
+    dist = args.dist.resolve()
     exe = dist/'Goggles HDMI.exe'
     if not exe.is_file(): raise SystemExit('Build GogglesHDMI.spec with PyInstaller first.')
     bundled = json.loads((dist/'_internal/release_config.json').read_text(encoding='utf-8'))

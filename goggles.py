@@ -14,6 +14,7 @@ import sys
 import time
 from contextlib import contextmanager
 import av
+from support_report import SupportError,record_issue,record_success,issue_from_exception
 
 LOCAL_IP = '192.168.60.1'
 GOGGLES_IP = '192.168.60.2'
@@ -93,11 +94,12 @@ class RecoveryGate:
         return self.count >= 60
 
 
-def usb_ready():
+def usb_ready(stats=None):
     """Verify DJI PNP identity before binding; never fall back to Wi-Fi or LAN."""
     if sys.platform == 'darwin':
         # Interface claim, RNDIS and ARP are verified inside the connection.
         return True, 'macOS 직접 USB 연결 확인 중'
+    if stats is not None:stats['stage'] = 'discovery'
     if os.name != 'nt':
         return False, 'Windows에서 실행하세요.'
     script = r'''
@@ -115,39 +117,46 @@ foreach ($a in $d) {
         capture_output=True,timeout=10,creationflags=subprocess.CREATE_NO_WINDOW)
     data = json.loads(result.stdout.decode('utf-8-sig'))
     if data['ready']:
+        if stats is not None:record_success(stats,'network_config',recovered=False)
         return True, 'USB 연결 확인'
+    if stats is not None:
+        record_issue(stats,'GH-USB-CONFIG' if data['found'] else 'GH-USB-MISSING',
+                     'network_config' if data['found'] else 'discovery')
     return False, ('USB 최초 설정이 필요합니다. USB 설정 버튼을 누르세요.' if data['found']
                    else '고글 USB 연결 대기 · 데이터 케이블을 연결하세요.')
 
 
 @contextmanager
-def windows_connection():
+def windows_connection(stats=None):
     with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as connection:
         connection.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,2*1024*1024)
+        if stats is not None:stats['stage'] = 'socket_bind'
         connection.bind((LOCAL_IP,12346))
         connection.connect((GOGGLES_IP,9003))
         connection.settimeout(.05)
         yield connection
 
 
-def datagram_connection(stop, state):
+def datagram_connection(stop, state, stats=None):
     if sys.platform == 'darwin':
         from macos_usb import USBConnection
-        return USBConnection(stop=stop,state=state)
-    return windows_connection()
+        return USBConnection(stop=stop,state=state,stats=stats)
+    return windows_connection(stats)
 
 
 def receive_session(stop, stats, state):
     seed = secrets.randbelow(8192)*8
     session = secrets.randbelow(65536)
     window = ReceiveWindow(seed)
+    stats['stage'] = 'decode'
     decoder = av.CodecContext.create('h264','r')
     decoder.thread_type = 'SLICE'
     decoder.thread_count = 4
     decoder.flags |= av.codec.context.Flags.low_delay
     decoder.flags2 |= av.codec.context.Flags2.show_all
     recovery = RecoveryGate()
-    with datagram_connection(stop,state) as connection:
+    with datagram_connection(stop,state,stats) as connection:
+        stats['stage'] = 'session'
         connection.send(make_packet(0,struct.pack('<H',seed)+SYN_TAIL,session))
         stats['sessions'] += 1
         state('고글 영상 연결 중 · 고글의 라이브뷰 공유가 켜져 있어야 합니다.')
@@ -156,15 +165,17 @@ def receive_session(stop, stats, state):
         while not stop.is_set():
             now = time.monotonic()
             if now-last_ack >= .01:
+                stats['stage'] = 'video'
                 connection.send(build_ack(session,seed,window.cursor))
                 last_ack = now
             if now-last_video > 3:
-                raise TimeoutError('영상 신호 대기 · USB 연결 / 라이브뷰 공유 / 기체 영상을 확인하세요.')
+                raise SupportError('GH-VIDEO-TIMEOUT','video')
             if now-last_decoded > 5:
-                raise ConnectionError('새 영상 시작 프레임 대기 · 다시 연결 중')
+                raise SupportError('GH-DECODE','decode')
             if window.gap_since and now-window.gap_since > .3:
-                raise ConnectionError('영상 패킷 누락 · 다시 연결 중')
+                raise SupportError('GH-VIDEO-GAP','video')
             try:
+                stats['stage'] = 'video'
                 raw = connection.recv(65535)
             except socket.timeout:
                 continue
@@ -177,23 +188,35 @@ def receive_session(stop, stats, state):
             if kind != 2 or len(payload)<12:
                 continue
             last_video = time.monotonic()
+            record_success(stats,'video',recovered=False)
             stats['video_bytes'] += len(payload)-12
-            for data in window.push(sequence,payload[12:]):
+            try:
+                ready_payloads = window.push(sequence,payload[12:])
+            except ConnectionError as exc:
+                raise SupportError('GH-VIDEO-GAP','video',exc) from exc
+            for data in ready_payloads:
                 stats['ordered_bytes'] = stats.get('ordered_bytes',0)+len(data)
+                stats['stage'] = 'decode'
                 for packet in decoder.parse(data):
                     stats['parsed_frames'] = stats.get('parsed_frames',0)+1
                     try:
+                        stats['stage'] = 'decode'
                         frames = decoder.decode(packet)
                     except av.error.InvalidDataError:
                         # A reconnect can join a GOP before its SPS/IDR arrives.
                         stats['decode_errors'] = stats.get('decode_errors',0)+1
+                        record_issue(stats,'GH-DECODE','decode',active=False)
                         recovery = RecoveryGate()
                         continue
                     for frame in frames:
                         if stop.is_set():
                             return
                         last_decoded = time.monotonic()
-                        if not recovery.accept(frame.is_corrupt):
+                        try:
+                            accepted = recovery.accept(frame.is_corrupt)
+                        except ConnectionError as exc:
+                            raise SupportError('GH-DECODE','decode',exc) from exc
+                        if not accepted:
                             stats['warmup_frames'] = stats.get('warmup_frames',0)+1
                             if recovery.count == 1:
                                 state('USB 영상 복원 중 · 약 2초 후 출력합니다.')
@@ -202,6 +225,7 @@ def receive_session(stop, stats, state):
                             stats['intra_refresh_frames'] = stats.get('intra_refresh_frames',0)+1
                         stats['frames'] += 1
                         stats['width'],stats['height'] = frame.width,frame.height
+                        record_success(stats,'decode')
                         yield frame
 
 
@@ -213,21 +237,21 @@ def decode_goggles(stop, state=lambda message:None, stats=None, retry_delay=1):
         stats.setdefault(key,0)
     while not stop.is_set():
         try:
-            ready,message = usb_ready()
+            ready,message = usb_ready(stats)
             if stop.is_set():
                 return
             if not ready:
-                state(message)
+                issue = stats.get('active_issue')
+                state('['+issue['code']+'] '+issue['message'] if issue else message)
             else:
                 yield from receive_session(stop,stats,state)
         except (OSError,ValueError,subprocess.SubprocessError,av.error.FFmpegError) as exc:
+            if stop.is_set():
+                return
             stats['retries'] += 1
-            stats['last_error'] = type(exc).__name__ + ': ' + str(exc)
-            if isinstance(exc,TimeoutError):
-                state(str(exc))
-            elif getattr(exc,'winerror',None) == 10048:
-                state('다른 고글 수신 프로그램이 실행 중입니다. 해당 프로그램을 종료하세요.')
-            else:
-                state(str(exc) if sys.platform == 'darwin' else 'USB 영상 다시 연결 중…')
+            issue = issue_from_exception(exc,stats.get('stage','discovery'))
+            record = record_issue(stats,issue.code,issue.stage,issue)
+            stats['last_error'] = record['code']
+            state('['+record['code']+'] '+record['message'])
         if stop.wait(retry_delay):
             return

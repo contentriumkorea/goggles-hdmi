@@ -50,7 +50,13 @@ def run(app,window,output):
         _,reply = b.receive(a.arp_request());a.receive(reply)
         assert a.receive(rndis_frames(rndis_packet(b.datagram(b'video')))[0])[0] == b'video'
         assert app.platformName() == 'cocoa'
-        report.update(ok=True,decoded_frames=len(frames),pipeline=True,gui=True,qt_platform=app.platformName(),libusb=True)
+        assert window.copy_problem_button.isEnabled()
+        window.copy_problem_button.click()
+        copied = app.clipboard().text()
+        assert copied.startswith('Goggles HDMI support report\n')
+        support = json.loads(copied.split('\n',1)[1])
+        assert support['source_mode'] == 'idle'
+        report.update(ok=True,decoded_frames=len(frames),pipeline=True,gui=True,qt_platform=app.platformName(),libusb=True,clipboard=True)
         code = 0
     except Exception as exc:
         report.update(ok=False,error=type(exc).__name__+': '+str(exc));code = 1

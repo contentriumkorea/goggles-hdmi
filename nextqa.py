@@ -39,6 +39,12 @@ def run(app, window):
     def red():
         return window.preview.frame.pixelColor(960, 540).red()
     try:
+        assert window.copy_problem_button.isEnabled()
+        window.copy_problem_button.click()
+        copied = app.clipboard().text()
+        assert copied.startswith('Goggles HDMI support report\n')
+        assert json.loads(copied.split('\n',1)[1])['source_mode'] == 'stream'
+        report['checks'].append('packaged_support_copy_reads_native_clipboard')
         wait_for(lambda: not window.preview.frame.isNull())
         assert red() == 100
         window.grading.exposure.setValue(100)

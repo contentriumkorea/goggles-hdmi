@@ -24,7 +24,6 @@ def audit(bundle):
         if architectures != ['arm64']:
             raise ValueError('Non-arm64 binary: '+str(path.relative_to(bundle)))
         load = run('/usr/bin/otool','-l',str(path))
-        versions = re.findall(r'(?:minos|\bversion)\s+(\d+\.\d+(?:\.\d+)?)',load)
         # Extract minimum only from LC_BUILD_VERSION / LC_VERSION_MIN_MACOSX blocks.
         versions = []
         for block in load.split('Load command'):
@@ -38,9 +37,18 @@ def audit(bundle):
             maximum = max(maximum,numbers)
             if numbers > (15,6,0):
                 raise ValueError('Deployment target exceeds macOS15.6: '+str(path.relative_to(bundle)))
+        # otool -L includes LC_ID_DYLIB (the library's own install name).
+        # It is not a load dependency; PyInstaller may preserve its original
+        # versioned name while storing this same library under an alias.
+        identities = set()
+        for block in load.split('Load command'):
+            if 'cmd LC_ID_DYLIB\n' in block:
+                identities.update(re.findall(r'\bname\s+(.+?)\s+\(offset',block))
         dependencies = []
         for line in run('/usr/bin/otool','-L',str(path)).splitlines()[1:]:
             dependency = line.strip().split(' (')[0]
+            if dependency in identities:
+                continue
             if dependency.startswith('/') and not dependency.startswith(('/usr/lib/','/System/Library/')):
                 raise ValueError('Unbundled absolute dylib: '+dependency)
             if dependency.startswith('@') and Path(dependency).name not in names:

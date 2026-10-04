@@ -17,6 +17,7 @@ MESSAGES = {
     'GH-USB-CONFIG':'고글 USB 주소 설정이 필요합니다. USB 최초 설정을 실행하세요.',
     'GH-RNDIS-INIT':'고글 RNDIS 초기화 응답을 확인하지 못했습니다. USB를 다시 연결하세요.',
     'GH-RNDIS-FRAMING':'USB 패킷의 길이 또는 구조가 올바르지 않습니다. 문제 정보를 복사하세요.',
+    'GH-RNDIS-RECOVERED':'별도 USB 읽기 사이의 비정상 잔여 1바이트를 검증 후 복구했습니다.',
     'GH-ARP-TIMEOUT':'고글의 USB 네트워크 응답이 없습니다. OTG 유선 컴퓨터 연결을 확인하세요.',
     'GH-TRANSPORT-IO':'USB 영상 통신 실패 · 다시 연결 중입니다.',
     'GH-VIDEO-TIMEOUT':'영상 패킷 대기 시간이 초과되었습니다. 라이브뷰 공유와 기체 영상을 확인하세요.',
@@ -32,11 +33,11 @@ COUNTERS = ('sessions','retries','invalid_packets','video_bytes','ordered_bytes'
             'usb_read_calls','usb_read_bytes','last_usb_read_bytes','rndis_messages','rndis_partial_reads',
             'rndis_buffered_bytes','rndis_expected_bytes','rndis_max_buffered_bytes','rndis_framing_errors',
             'rndis_control_ms','rndis_max_control_ms','max_ack_gap_ms','usb_timeout_reads',
-            'usb_empty_reads','rndis_zero_padding_bytes')
+            'usb_empty_reads','rndis_zero_padding_bytes','rndis_boundary_recoveries','rndis_discarded_boundary_bytes')
 CONTEXT_LIMITS = {'buffered_bytes':2*1024*1024,'expected_bytes':2*1024*1024,
     'header_type':2**32-1,'header_length':2**32-1,'pending_prefix_bytes':3,
     'pending_prefix_value':2**24-1,'read_bytes':1024*1024,'previous_read_bytes':1024*1024,
-    'usb_read_call':2**63}
+    'usb_read_call':2**63,'validated_messages':65535}
 
 
 def safe_context(context):
@@ -44,7 +45,7 @@ def safe_context(context):
             if type(value := context.get(key)) is int and 0<=value<=limit}
 EXCEPTION_CLASSES = {'OSError','ValueError','ConnectionError','TimeoutError','USBError','USBTimeoutError',
                      'InvalidDataError','FFmpegError','RNDISFramingError','SupportError','OtherError'}
-REASONS = {'partial_timeout','buffer_limit','message_type','length_limit','data_bounds','metadata'}
+REASONS = {'partial_timeout','buffer_limit','message_type','length_limit','data_bounds','metadata','one_byte_boundary'}
 OPERATIONS = {'usb_read','usb_write','rndis_parse','network_receive','rndis_keepalive','rndis_initialize',
               'rndis_query_mac','rndis_query_mtu','rndis_set_filter','arp_send','session_send','ack_send',
               'video_receive','decode_create','decode_parse','decode_frame','decode_recovery'}

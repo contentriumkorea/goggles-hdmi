@@ -11,7 +11,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from usb_network import NetworkPeer, rndis_packet, RNDISStream, RNDISFramingError
-from support_report import SupportError,issue_from_exception,record_success
+from support_report import SupportError,issue_from_exception,record_success,record_issue
 
 VID, PID = 0x2ca3, 0x0020
 MAX_TRANSFER = 1024*1024
@@ -288,6 +288,14 @@ class USBConnection:
             raise SupportError('GH-RNDIS-FRAMING',self.stats.get('stage','video'),exc,operation='rndis_parse') from exc
         finally:
             self.stats['rndis_zero_padding_bytes'] = self.stats.get('rndis_zero_padding_bytes',0)+self.framing.padding_bytes-previous_padding_bytes
+        if self.framing.recovery_context:
+            evidence = RNDISFramingError('one_byte_boundary',buffered_bytes=1,expected_bytes=0)
+            evidence.context.update(self.framing.recovery_context,previous_read_bytes=previous_read_bytes,
+                usb_read_call=self.stats['usb_read_calls'])
+            self.stats['rndis_boundary_recoveries'] = self.stats.get('rndis_boundary_recoveries',0)+1
+            self.stats['rndis_discarded_boundary_bytes'] = self.stats.get('rndis_discarded_boundary_bytes',0)+1
+            issue = SupportError('GH-RNDIS-RECOVERED',self.stats.get('stage','video'),evidence,operation='rndis_parse')
+            record_issue(self.stats,issue.code,issue.stage,issue,active=False)
         self.stats['rndis_buffered_bytes'] = self.framing.buffered_bytes
         self.stats['rndis_expected_bytes'] = self.framing.expected_bytes
         self.stats['rndis_max_buffered_bytes'] = max(self.stats.get('rndis_max_buffered_bytes',0),self.framing.buffered_bytes)

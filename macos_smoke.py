@@ -58,6 +58,11 @@ def run(app,window,output):
             assert error.context['header_type']==257 and error.context['pending_prefix_value']==1
             report['framing_header_diagnostics']=True
         else:raise AssertionError('Malformed prefix must remain rejected')
+        stream=RNDISStream();packet=rndis_packet(b'\0'*1514)
+        assert stream.feed(packet)==[b'\0'*1514]
+        assert stream.feed(b'\xd8')==[] and stream.feed(b'')==[]
+        assert stream.feed(packet)==[b'\0'*1514] and stream.recovery_count==1
+        report['one_byte_boundary_recovery']=True
         assert app.platformName() == 'cocoa'
         assert window.copy_problem_button.isEnabled()
         window.copy_problem_button.click()

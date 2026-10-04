@@ -159,3 +159,32 @@ def test_framing_failure_retains_numeric_read_and_prefix_evidence_after_close():
     assert caught.value.context['previous_read_bytes']==1
     assert caught.value.context['usb_read_call']==3
     assert stats['rndis_buffered_bytes']==0
+
+
+@pytest.mark.parametrize('value',[216,237,25])
+def test_observed_orphan_recovers_without_reclaim_or_session_restart(value):
+    from macos_usb import USBConnection
+    from usb_network import NetworkPeer,rndis_packet
+    d=Device();util=Util();stats={'session_attempts':1}
+    peer=NetworkPeer('192.168.60.2','192.168.60.1',9003,12346,b'\x02bbbbb')
+    d.reads.append(rndis_packet(peer.arp_request()))
+    with USBConnection(device=d,util=util,stats=stats) as connection:
+        peer.remote_mac=connection.peer.mac
+        d.reads.extend([bytes([value]),b'',rndis_packet(peer.datagram(b'video'))])
+        with pytest.raises(socket.timeout):connection.recv(65535)
+        with pytest.raises(socket.timeout):connection.recv(65535)
+        assert connection.recv(65535)==b'video'
+        assert util.claims==[2,3] and util.releases==[]
+        assert stats['rndis_boundary_recoveries']==stats['rndis_discarded_boundary_bytes']==1
+        assert not stats.get('rndis_framing_errors') and not stats.get('active_issue')
+        issue=stats['issue_history'][-1]
+        assert issue['code']=='GH-RNDIS-RECOVERED' and issue['session_attempt']==1
+        assert issue['context']['pending_prefix_value']==value and issue['context']['validated_messages']==1
+        with pytest.raises(socket.timeout):connection.recv(65535)
+        assert len(stats['issue_history'])==1
+        # RNDIS recovery still passes Ethernet/IP peer validation.
+        packet=rndis_packet(peer.datagram(b'untrusted'));packet=bytearray(packet);packet[44]=99
+        d.reads.extend([bytes([value]),packet])
+        with pytest.raises(socket.timeout):connection.recv(65535)
+        with pytest.raises(socket.timeout):connection.recv(65535)
+        assert stats['rndis_boundary_recoveries']==2 and not connection.pending

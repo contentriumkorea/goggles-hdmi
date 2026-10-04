@@ -185,3 +185,51 @@ def test_consumed_header_prefix_is_not_attributed_to_later_malformed_message():
     malformed=struct.pack('<2I',9,1558)
     with pytest.raises(RNDISFramingError) as caught:stream.feed(packet[1:]+malformed)
     assert caught.value.context=={'header_type':9,'header_length':1558}
+
+
+@pytest.mark.parametrize('value,kind',[(216,472),(237,493),(25,281)])
+def test_observed_orphan_byte_recovers_only_with_independently_complete_new_read(value,kind):
+    from usb_network import RNDISStream,rndis_packet
+    stream=RNDISStream();frame=b'\0'*1514;packet=rndis_packet(frame)
+    assert stream.feed(packet)==[frame]
+    assert stream.feed(bytes([value]))==[] and stream.feed(b'')==[]
+    assert stream.feed(packet)==[frame]
+    assert stream.buffered_bytes==0 and stream.recovery_count==1
+    assert stream.recovery_context=={'header_type':kind,'header_length':398848,
+        'pending_prefix_bytes':1,'pending_prefix_value':value,'read_bytes':1558,'validated_messages':1}
+
+
+def test_orphan_recovery_accepts_complete_coalesced_messages_but_not_partial_tail():
+    from usb_network import RNDISStream,RNDISFramingError,rndis_packet
+    first,second=aligned_message(b'a'*100),rndis_packet(b'b'*64)
+    stream=RNDISStream();assert stream.feed(first)==[b'a'*100]
+    assert stream.feed(b'\xd8')==[]
+    assert stream.feed(first+second+b'\0')==[b'a'*100,b'b'*64]
+    assert stream.recovery_context['validated_messages']==2
+    stream=RNDISStream();stream.feed(first);stream.feed(b'\xd8')
+    with pytest.raises(RNDISFramingError):stream.feed(first+second[:25])
+    assert stream.recovery_count==0
+
+
+@pytest.mark.parametrize('prefix,next_read',[
+    (b'\x01','packet'),(b'\xd8\xed','packet'),(b'\xd8\xed\x19','packet'),
+    (b'\xd8','partial'),(b'\xd8','malformed'),(b'\xd8','padding')])
+def test_orphan_recovery_never_scans_or_accepts_unverified_read(prefix,next_read):
+    from usb_network import RNDISStream,RNDISFramingError,rndis_packet
+    packet=rndis_packet(b'\0'*1514);stream=RNDISStream();stream.feed(packet)
+    stream.feed(prefix)
+    data={'packet':packet,'partial':packet[:31],'malformed':b'bad'+packet,'padding':b'\0'*64}[next_read]
+    with pytest.raises(RNDISFramingError):stream.feed(data)
+    assert stream.recovery_count==0
+
+
+def test_orphan_recovery_requires_prior_valid_message_and_unexpired_prefix():
+    from usb_network import RNDISStream,RNDISFramingError,rndis_packet
+    packet=rndis_packet(b'\0'*1514);stream=RNDISStream();stream.feed(b'\xd8')
+    with pytest.raises(RNDISFramingError):stream.feed(packet)
+    stream=RNDISStream()
+    with pytest.raises(RNDISFramingError):stream.feed(b'\xd8'+packet)
+    clock=[0.0];stream=RNDISStream(clock=lambda:clock[0]);stream.feed(packet);stream.feed(b'\xd8')
+    clock[0]=1.1
+    with pytest.raises(RNDISFramingError,match='partial_timeout'):stream.feed(packet)
+    assert stream.recovery_count==0

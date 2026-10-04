@@ -119,3 +119,21 @@ def test_header_context_and_build_revision_are_strictly_numeric_allowlisted():
     result=json.loads(build_report(version='1.2.3',build_revision='/Users/private',stats=stats).split('\n',1)[1])
     assert result['build']=='unknown'
     assert result['recent_issues'][0]['context']=={'buffered_bytes':1559,'expected_bytes':0}
+
+
+def test_recovery_report_is_inactive_bounded_and_numeric_only():
+    from support_report import build_report,record_issue,SupportError
+    from usb_network import RNDISFramingError
+    error=RNDISFramingError('one_byte_boundary',buffered_bytes=1)
+    error.context={'pending_prefix_value':216,'validated_messages':1,'payload':b'PRIVATE VIDEO'}
+    stats={'rndis_boundary_recoveries':1,'rndis_discarded_boundary_bytes':1}
+    issue=SupportError('GH-RNDIS-RECOVERED','video',error,operation='rndis_parse')
+    record_issue(stats,issue.code,issue.stage,issue,active=False)
+    text=build_report(version='1.2.4',stats=stats)
+    data=json.loads(text.split('\n',1)[1])
+    assert data['active_issue'] is None and 'PRIVATE' not in text
+    assert data['counters']['rndis_boundary_recoveries']==1
+    assert data['recent_issues'][0]['reason']=='one_byte_boundary'
+    assert data['recent_issues'][0]['context']['validated_messages']==1
+    error.context={'validated_messages':65536,'pending_prefix_value':True}
+    assert SupportError('GH-RNDIS-RECOVERED','video',error).context=={'buffered_bytes':1,'expected_bytes':0}

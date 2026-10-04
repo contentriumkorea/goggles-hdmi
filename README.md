@@ -14,11 +14,11 @@ Windows 10/11 x64용 최신 **1.2.0**은 연결 오류 코드와 문제 정보 �
 
 ## Apple Silicon macOS
 
-**arm64 1.2.3**은 **macOS 15.6 이상**을 사용하는 호환 Apple Silicon Mac을 대상으로 합니다. M1·M2·M3·M4 및 이후 호환 M 시리즈에 공통 설치 파일 하나를 사용합니다. 모든 Mac 모델을 실기기로 검증했다는 의미는 아닙니다. Intel Mac, Windows ARM, Linux는 이 릴리스에 포함되지 않습니다.
+**arm64 1.2.4**은 **macOS 15.6 이상**을 사용하는 호환 Apple Silicon Mac을 대상으로 합니다. M1·M2·M3·M4 및 이후 호환 M 시리즈에 공통 설치 파일 하나를 사용합니다. 모든 Mac 모델을 실기기로 검증했다는 의미는 아닙니다. Intel Mac, Windows ARM, Linux는 이 릴리스에 포함되지 않습니다.
 
-[Apple Silicon 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/macos-arm64-v1.2.3) · [설치·실기기 검증 안내](docs/macos-release-notes.md)
+[Apple Silicon 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/macos-arm64-v1.2.4) · [설치·실기기 검증 안내](docs/macos-release-notes.md)
 
-**1.2.3은 남은 반복 끊김을 확인하기 위한 진단 빌드입니다.** 프레이밍 오류의 헤더 종류·길이, 미완성 헤더 접두부의 제한된 숫자값, USB 읽기 수치와 빌드 식별값을 문제 정보 복사에 추가했습니다. 원본 영상·바이트 덤프는 포함하지 않습니다. 연결 정책은 유지하며 실제 발생 원인과 개선 여부는 다음 Mac 보고서로 확인해야 합니다.
+**1.2.4는 실제 보고된 읽기 경계의 잔여 1바이트 충돌을 재현하고 제한적으로 복구합니다.** 이미 정상 메시지를 받은 연결에서 이전 읽기의 비정상 1바이트와 독립 검증된 완전한 새 읽기가 만난 경우에만 복구합니다. 정상 분할 헤더·데이터와 네트워크 검증은 유지하고 다른 잘못된 데이터는 계속 거부합니다. 문제 정보에 복구 횟수와 `GH-RNDIS-RECOVERED` 기록이 추가되며 원본 영상·바이트 덤프는 포함하지 않습니다. 잔여 바이트의 발생 계층은 아직 확인되지 않았고, 실제 끊김 개선 여부는 Mac 재시험이 필요합니다.
 
 **1.2.2는 HTTPS 업데이트 인증서 오류를 수정하고 1.2.1의 USB 분할 수신 수정을 포함합니다.** `CERTIFICATE_VERIFY_FAILED`가 뜨는 이전 Mac 설치본은 브라우저로 새 pkg를 내려받아 한 번 수동 설치하세요. 인증서 검증을 끄지 않으며 프로그램에 포함된 신뢰 저장소로 업데이트 정보와 설치 파일을 검증합니다. 패키징된 앱의 실제 GitHub HTTPS 연결도 CI에서 확인합니다.
 

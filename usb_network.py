@@ -57,6 +57,9 @@ class RNDISStream:
         self.expected_bytes = 0
         self.padding_bytes = 0
         self.previous_prefix = None
+        self.valid_messages = 0
+        self.recovery_count = 0
+        self.recovery_context = None
 
     @property
     def buffered_bytes(self):
@@ -64,6 +67,7 @@ class RNDISStream:
 
     def reset(self):
         self.buffer.clear();self.partial_since = None;self.expected_bytes = 0;self.previous_prefix = None
+        self.valid_messages = 0;self.recovery_context = None
 
     def _fail(self,reason):
         error = RNDISFramingError(reason,buffered_bytes=len(self.buffer),expected_bytes=self.expected_bytes)
@@ -79,6 +83,7 @@ class RNDISStream:
         raise error
 
     def feed(self,data):
+        self.recovery_context = None
         self.previous_prefix = (len(self.buffer),int.from_bytes(self.buffer,'little')) if (
             self.expected_bytes==0 and 0<len(self.buffer)<=3) else None
         now = self.clock()
@@ -86,6 +91,23 @@ class RNDISStream:
             self._fail('partial_timeout')
         if len(data) > self.max_message or len(self.buffer)+len(data) > 2*self.max_message:
             self._fail('buffer_limit')
+        # The observed orphan cannot begin PACKET_MSG (little-endian type 1).
+        # Recover only across separate reads, after established valid traffic,
+        # and only if the entire new read independently validates at offset zero.
+        if (self.valid_messages and len(self.buffer)==1 and self.expected_bytes==0
+                and self.buffer[0] not in (0,1) and data):
+            try:
+                validated = rndis_frames(data)
+            except ValueError:
+                validated = []
+            if validated:
+                header = bytes(self.buffer)+bytes(data[:7])
+                self.recovery_context = {'header_type':struct.unpack_from('<I',header)[0],
+                    'header_length':struct.unpack_from('<I',header,4)[0],
+                    'pending_prefix_bytes':1,'pending_prefix_value':self.buffer[0],
+                    'read_bytes':len(data),'validated_messages':len(validated)}
+                self.recovery_count += 1
+                self.buffer.clear();self.partial_since = None;self.previous_prefix = None
         self.buffer.extend(data)
         ready = []
         while self.buffer:
@@ -115,6 +137,7 @@ class RNDISStream:
             if len(self.buffer) < length:
                 break
             ready.append(bytes(self.buffer[start:start+size]))
+            self.valid_messages += 1
             del self.buffer[:length]
             self.partial_since = None;self.expected_bytes = 0;self.previous_prefix = None
         if self.buffer and self.partial_since is None:

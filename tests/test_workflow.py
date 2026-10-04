@@ -275,31 +275,43 @@ def test_short_receive_stall_is_captured_without_manual_trace(tmp_path):
         w.incident_store = IncidentStore(tmp_path/'stutter-latest.json')
         w.mode = 'stream'
         stall = threading.Event()
+        pauses = []
         def frames():
             for i in itertools.count():
                 if w.stop_event.is_set(): return
                 yield av.VideoFrame.from_ndarray(np.full((90,160,3),100,np.uint8),format='rgb24')
                 if stall.is_set():
                     stall.clear()
+                    paused_at = time.perf_counter()
                     w.stop_event.wait(.30)
+                    pauses.append((paused_at,time.perf_counter()))
                 else:
                     w.stop_event.wait(1/30)
         w.worker = threading.Thread(target=w.receive_frames,args=(frames(),w.stop_event),daemon=True)
         w.worker.start()
-        deadline = time.monotonic()+10
-        injected = False
+        deadline = time.monotonic()+25
+        injections = []
+        receive_incident = None
         while time.monotonic() < deadline:
             # qWait may hold the GIL on Cocoa and inflate every source interval,
             # making a fixed short pause fall below the adaptive threshold.
             qapp.processEvents()
             time.sleep(.01)
-            if not injected and w.frames >= 42:
-                stall.set();injected = True
-            if w.incident_store.path.exists(): break
-        assert injected, 'Source must warm up before the intentional pause'
+            with w.stutter.lock:
+                eligible = w.stutter.pending is None and time.perf_counter()>=w.stutter.cooldown_until
+                origin = w.stutter.origin
+            if len(injections)<3 and w.frames>=42 and eligible and (not injections or time.perf_counter()-injections[-1]>1):
+                injections.append(time.perf_counter());stall.set()
+            if injections and w.incident_store.path.exists():
+                report=json.loads(w.incident_store.path.read_text(encoding='utf-8'))
+                receive_incident=next((incident for incident in report['incidents'] if
+                    incident['reason']=='receive' and incident['gap_ms']>=250 and
+                    any(end-start>=.25 and (start-origin)*1000 <= incident['trigger_ms'] <=
+                        (end-origin)*1000+100 for start,end in pauses)),None)
+                if receive_incident:break
+        assert injections, 'Source must warm up before the intentional pause'
         assert w.incident_store.path.exists(), f'Completed stall evidence should be saved automatically: {w.stutter.status()}'
-        report=json.loads(w.incident_store.path.read_text(encoding='utf-8'))
-        assert report['incidents'][-1]['reason']=='receive'
+        assert receive_incident is not None, f'Injected receive pause must be saved, independently of incidental GUI stalls: {w.stutter.status()}'
         assert not w.trace.active and w.trace.report()['events']==[]
         assert not w.output.frame.isNull()
     finally: close(w)

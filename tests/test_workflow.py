@@ -145,7 +145,7 @@ def test_preview_rate_limit_and_minimized_output(monkeypatch):
         wait_for(lambda: not w.preview_active)
         count=len(draws)
         before=w.processing_stats['processed']
-        QTest.qWait(120)
+        wait_for(lambda: w.processing_stats['processed']>before)
         assert len(draws)==count
         assert w.processing_stats['processed']>before
     finally: close(w)

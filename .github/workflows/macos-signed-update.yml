@@ -2,7 +2,7 @@ name: Publish verified Apple Silicon update
 on:
   push:
     branches: [main]
-    paths: ['channels/macos-arm64.json']
+    paths: ['channels/macos-arm64.json', '.github/workflows/macos-signed-update.yml']
 permissions:
   contents: write
 jobs:
@@ -14,7 +14,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install --only-binary=:all: cryptography==50.0.1
+      - run: |
+          python -m pip install --only-binary=:all: cryptography==50.0.1
       - name: Verify publisher signature and download existing prerelease pkg
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,16 +1,16 @@
 {
   "release": {
     "product": "GogglesHDMI-Next",
-    "version": "1.2.5",
+    "version": "1.2.6",
     "platform": "darwin",
     "architecture": "arm64",
     "channel": "macos-preview",
     "installer_kind": "pkg",
     "installer_name": "setup.pkg",
-    "size": 112292399,
-    "sha256": "5b1cb78e63cb56ffa51c7ba85d2babe54ddbf97b62d1b05bf0067175df520aea",
-    "url": "https://github.com/contentriumkorea/goggles-hdmi/releases/download/macos-arm64-v1.2.5/Goggles-HDMI-macOS-arm64-1.2.5.pkg",
-    "notes": "Mac 화면 픽셀 조회·전체화면 상태 복원 수정 · USB 경계 복구/HTTPS 수정 유지"
+    "size": 112287678,
+    "sha256": "8aae07b01870be9d138d4ee736e7f0be17e5873a6bd50cacd8302fe8045d51d2",
+    "url": "https://github.com/contentriumkorea/goggles-hdmi/releases/download/macos-arm64-v1.2.6/Goggles-HDMI-macOS-arm64-1.2.6.pkg",
+    "notes": "Mac 화면 재구성 뒤 같은 모니터 출력 복원 수정 · USB/HTTPS 수정 유지"
   },
-  "signature": "3QmDV8DUkZ4SyWIbQXNu9L6PRhwWotYR+Hcg/P3C8M+C+WX51RGWXZKbxw9XvVR8RpK3IlDY5/qDqb2IUXMrCw=="
+  "signature": "xRK41RIjysIsdU64MM5D7f+M8LcdcTbuqxphXuTVGaLwtnW9QqTUtdhU8FwWI8xjoZ6wNKXokBdkrurJCLdUDw=="
 }

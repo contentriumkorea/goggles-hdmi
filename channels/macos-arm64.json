@@ -1,16 +1,16 @@
 {
   "release": {
     "product": "GogglesHDMI-Next",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "platform": "darwin",
     "architecture": "arm64",
     "channel": "macos-preview",
     "installer_kind": "pkg",
     "installer_name": "setup.pkg",
-    "size": 112131710,
-    "sha256": "d75bd48ff9ec14400881dec95e9076a9bc80d07b8aefda570a460dea4428a92c",
-    "url": "https://github.com/contentriumkorea/goggles-hdmi/releases/download/macos-arm64-v1.2.1/Goggles-HDMI-macOS-arm64-1.2.1.pkg",
-    "notes": "Mac USB 분할 수신 처리 수정 · 실제 Mac에서 끊김 개선 재확인 필요 · Apple 설치 프로그램 확인 필요"
+    "size": 112273531,
+    "sha256": "5b58d4e3e0d8a8512f08a4ecbbe1baf6bba58e894bcb42b05efed39f87f59ce0",
+    "url": "https://github.com/contentriumkorea/goggles-hdmi/releases/download/macos-arm64-v1.2.2/Goggles-HDMI-macOS-arm64-1.2.2.pkg",
+    "notes": "Mac HTTPS 인증서 저장소 포함 · USB 분할 수신 수정 포함 · 실제 Mac 끊김 재확인 필요 · Apple 설치 확인 필요"
   },
-  "signature": "lbTPGhh9FC9dSD2rq+F5165GkKAk7U0uiIXxJsbqfirFIzUstjC4cP4vblx0FhUke5LVysxbkQwvVzNfKcF+Ag=="
+  "signature": "b5qWho2Gkvh9TEr+f9X/rRBD9GCYfZkUFRYUU1c6OGAh7yIxKUSuWl4ryDN0xLP0bii2oDYrqj/IS+xmowE/BQ=="
 }

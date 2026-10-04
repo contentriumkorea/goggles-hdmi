@@ -93,3 +93,29 @@ def test_framing_unknown_diagnostics_are_safe_and_repeated_startup_errors_are_bo
     record_issue(stats,'GH-UNKNOWN','video',unsafe)
     last=json.loads(build_report(version='1.2.1',stats=stats).split('\n',1)[1])['recent_issues'][-1]
     assert last['exception_class']=='OtherError' and 'secret' not in json.dumps(last).lower()
+
+
+def test_header_context_and_build_revision_are_strictly_numeric_allowlisted():
+    from support_report import build_report,issue_from_exception,record_issue
+    from usb_network import RNDISFramingError
+    error=RNDISFramingError('message_type',buffered_bytes=1559,expected_bytes=0)
+    error.context={'header_type':257,'header_length':398848,'pending_prefix_bytes':1,
+        'pending_prefix_value':1,'read_bytes':1558,'previous_read_bytes':1,'usb_read_call':3,
+        'payload':'VIDEO SECRET','serial':'DEVICE SECRET','header_type_raw':b'SECRET',
+        'url':'https://user:secret@example.com','unsafe_number':123}
+    stats={};issue=issue_from_exception(error,'video',operation='rndis_parse')
+    record_issue(stats,issue.code,issue.stage,issue)
+    text=build_report(version='1.2.3',build_revision='a'*40,stats=stats)
+    result=json.loads(text.split('\n',1)[1])
+    assert result['build']=='a'*40 and 'SECRET' not in text and 'user:secret' not in text
+    assert result['recent_issues'][0]['context']=={'buffered_bytes':1559,'expected_bytes':0,
+        'header_type':257,'header_length':398848,'pending_prefix_bytes':1,'pending_prefix_value':1,
+        'read_bytes':1558,'previous_read_bytes':1,'usb_read_call':3}
+    error.context={'header_type':2**32,'header_length':-1,'pending_prefix_bytes':4,
+        'pending_prefix_value':2**24,'read_bytes':True,'previous_read_bytes':'private',
+        'usb_read_call':2**64}
+    issue=issue_from_exception(error,'video',operation='rndis_parse');stats={}
+    record_issue(stats,issue.code,issue.stage,issue)
+    result=json.loads(build_report(version='1.2.3',build_revision='/Users/private',stats=stats).split('\n',1)[1])
+    assert result['build']=='unknown'
+    assert result['recent_issues'][0]['context']=={'buffered_bytes':1559,'expected_bytes':0}

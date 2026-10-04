@@ -3,6 +3,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,9 @@ def main():
         raise SystemExit('Build on native macOS arm64')
     configuration = json.loads((ROOT/'release_config_macos.json').read_text())
     work = ROOT/'build/macos';work.mkdir(parents=True,exist_ok=True)
+    revision = os.environ.get('GITHUB_SHA','')
+    configuration['build_revision'] = revision if re.fullmatch('[0-9a-f]{40}',revision) else 'unknown'
+    (work/'release_config_macos.json').write_text(json.dumps(configuration,ensure_ascii=False),encoding='utf-8')
     prefix = subprocess.check_output(['brew','--prefix','libusb'],text=True).strip()
     shutil.copy2(Path(prefix)/'lib/libusb-1.0.dylib',work/'libusb-1.0.dylib')
     icons = work/'GogglesHDMI.iconset';icons.mkdir(exist_ok=True)
@@ -72,7 +76,7 @@ def main():
     entries = [entry.removeprefix('./') for entry in payload_files.splitlines() if entry not in ('.','./')]
     if not entries or any(entry != bundle.name and not entry.startswith(bundle.name+'/') for entry in entries):
         raise SystemExit('Installer payload contains files outside the application bundle')
-    info = {'version':configuration['version'],'architecture':'arm64','macos':platform.mac_ver()[0],
+    info = {'version':configuration['version'],'build_revision':configuration['build_revision'],'architecture':'arm64','macos':platform.mac_ver()[0],
             'hardware_verified':False,'apple_signing':'ad-hoc app; unsigned pkg; not notarized',
             'dependencies':{name:importlib.metadata.version(name) for name in ('PySide6','av','numpy','opencv-python-headless','cryptography','pyusb','pyinstaller','certifi')}}
     (release/'build-info.json').write_text(json.dumps(info,indent=2),encoding='utf-8')

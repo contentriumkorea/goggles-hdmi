@@ -141,3 +141,21 @@ def test_partial_bulk_reads_do_not_restart_arp_or_discard_complete_datagrams():
         assert connection.recv(65535)==b'second'
         assert stats['rndis_partial_reads']==2 and stats['rndis_messages']==3
         assert stats['rndis_buffered_bytes']==0
+
+
+def test_framing_failure_retains_numeric_read_and_prefix_evidence_after_close():
+    from macos_usb import USBConnection
+    from usb_network import NetworkPeer,rndis_packet
+    from support_report import SupportError
+    d=Device();stats={};peer=NetworkPeer('192.168.60.2','192.168.60.1',9003,12346,b'\x02bbbbb')
+    d.reads.append(rndis_packet(peer.arp_request()))
+    with pytest.raises(SupportError) as caught:
+        with USBConnection(device=d,util=Util(),stats=stats) as connection:
+            d.reads.extend([b'\x01',rndis_packet(b'\0'*1514)])
+            connection._read();connection._read()
+    assert caught.value.context['pending_prefix_value']==1
+    assert caught.value.context['header_type']==257
+    assert caught.value.context['read_bytes']==1558
+    assert caught.value.context['previous_read_bytes']==1
+    assert caught.value.context['usb_read_call']==3
+    assert stats['rndis_buffered_bytes']==0

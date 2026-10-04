@@ -31,7 +31,17 @@ COUNTERS = ('sessions','retries','invalid_packets','video_bytes','ordered_bytes'
             'warmup_frames','intra_refresh_frames','decode_errors','width','height','session_attempts',
             'usb_read_calls','usb_read_bytes','last_usb_read_bytes','rndis_messages','rndis_partial_reads',
             'rndis_buffered_bytes','rndis_expected_bytes','rndis_max_buffered_bytes','rndis_framing_errors',
-            'rndis_control_ms','rndis_max_control_ms','max_ack_gap_ms')
+            'rndis_control_ms','rndis_max_control_ms','max_ack_gap_ms','usb_timeout_reads',
+            'usb_empty_reads','rndis_zero_padding_bytes')
+CONTEXT_LIMITS = {'buffered_bytes':2*1024*1024,'expected_bytes':2*1024*1024,
+    'header_type':2**32-1,'header_length':2**32-1,'pending_prefix_bytes':3,
+    'pending_prefix_value':2**24-1,'read_bytes':1024*1024,'previous_read_bytes':1024*1024,
+    'usb_read_call':2**63}
+
+
+def safe_context(context):
+    return {key:value for key,limit in CONTEXT_LIMITS.items()
+            if type(value := context.get(key)) is int and 0<=value<=limit}
 EXCEPTION_CLASSES = {'OSError','ValueError','ConnectionError','TimeoutError','USBError','USBTimeoutError',
                      'InvalidDataError','FFmpegError','RNDISFramingError','SupportError','OtherError'}
 REASONS = {'partial_timeout','buffer_limit','message_type','length_limit','data_bounds','metadata'}
@@ -54,8 +64,10 @@ class SupportError(OSError):
         self.exception_class = name if name in EXCEPTION_CLASSES else ('OtherError' if name else None)
         self.reason = getattr(original,'reason',None) if getattr(original,'reason',None) in REASONS else None
         self.operation = operation if operation in OPERATIONS else None
-        self.context = {key:value for key in ('buffered_bytes','expected_bytes')
-                        if type(value := getattr(original,key,None)) is int and 0 <= value <= 2*1024*1024}
+        context = getattr(original,'context',{})
+        context = dict(context) if isinstance(context,dict) else {}
+        context.update({key:getattr(original,key,None) for key in ('buffered_bytes','expected_bytes')})
+        self.context = safe_context(context)
         super().__init__(MESSAGES[self.code])
 
 
@@ -139,12 +151,11 @@ def safe_issue(value):
         if type(number) is int and 0 <= number <= 2**63:result[key] = number
     context = value.get('context')
     if isinstance(context,dict):
-        result['context'] = {key:number for key in ('buffered_bytes','expected_bytes')
-                            if type(number := context.get(key)) is int and 0 <= number <= 2*1024*1024}
+        result['context'] = safe_context(context)
     return result
 
 
-def build_report(*, version, platform=None, os_version=None, architecture=None, mode='idle',stats=None,
+def build_report(*, version, build_revision=None, platform=None, os_version=None, architecture=None, mode='idle',stats=None,
                  diagnosis=None,components=None,output=None,last_frame=0,logs=None):
     stats = stats or {}
     counters = {key:value for key in COUNTERS if type(value := stats.get(key)) in (int,float) and
@@ -155,7 +166,8 @@ def build_report(*, version, platform=None, os_version=None, architecture=None, 
     selected_os = os_version or (host_platform.mac_ver()[0] if selected_platform == 'darwin' else host_platform.version())
     selected_arch = architecture or host_platform.machine()
     report = {'schema_version':1,'captured_utc':utc_now(),'app_version':version if isinstance(version,str) and re.fullmatch(r'\d{1,4}\.\d{1,4}\.\d{1,4}',version) else 'unknown',
-        'build':'unknown','platform':selected_platform if selected_platform in ('darwin','win32') else 'unknown',
+        'build':build_revision if isinstance(build_revision,str) and re.fullmatch('[0-9a-f]{40}',build_revision) else 'unknown',
+        'platform':selected_platform if selected_platform in ('darwin','win32') else 'unknown',
         'os_version':selected_os if isinstance(selected_os,str) and re.fullmatch(r'[0-9.]{1,40}',selected_os) else 'unknown',
         'architecture':selected_arch if selected_arch in ('arm64','aarch64','x86_64','AMD64','x86','i386') else 'unknown',
         'source_mode':mode if mode in ('idle','usb','stream','pattern') else 'unknown',

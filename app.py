@@ -1034,7 +1034,7 @@ class MainWindow(QMainWindow):
             components = dict(self.component_issues)
             output = dict(self.support_output)
             last_frame,mode = self.last_frame,self.mode
-        return build_report(version=CONFIG['version'],mode=mode,stats=stats,diagnosis=diagnosis,
+        return build_report(version=CONFIG['version'],build_revision=CONFIG.get('build_revision'),mode=mode,stats=stats,diagnosis=diagnosis,
                             components=components,output=output,last_frame=last_frame)
 
     def copy_problem_info(self):

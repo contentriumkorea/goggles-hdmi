@@ -44,6 +44,7 @@ class RNDISFramingError(ValueError):
     def __init__(self,reason,*,buffered_bytes=0,expected_bytes=0):
         self.reason = reason
         self.buffered_bytes,self.expected_bytes = buffered_bytes,expected_bytes
+        self.context = {}
         super().__init__(reason)
 
 
@@ -54,20 +55,32 @@ class RNDISStream:
         self.buffer = bytearray()
         self.partial_since = None
         self.expected_bytes = 0
+        self.padding_bytes = 0
+        self.previous_prefix = None
 
     @property
     def buffered_bytes(self):
         return len(self.buffer)
 
     def reset(self):
-        self.buffer.clear();self.partial_since = None;self.expected_bytes = 0
+        self.buffer.clear();self.partial_since = None;self.expected_bytes = 0;self.previous_prefix = None
 
     def _fail(self,reason):
         error = RNDISFramingError(reason,buffered_bytes=len(self.buffer),expected_bytes=self.expected_bytes)
+        # The buffer still starts at the expected header, never at video payload.
+        # Capture only bounded numeric framing fields; no raw bytes leave here.
+        if reason in ('message_type','length_limit','data_bounds','metadata'):
+            if len(self.buffer)>=4:error.context['header_type']=struct.unpack_from('<I',self.buffer)[0]
+            if len(self.buffer)>=8:error.context['header_length']=struct.unpack_from('<I',self.buffer,4)[0]
+            if self.previous_prefix is not None:
+                error.context.update(pending_prefix_bytes=self.previous_prefix[0],
+                    pending_prefix_value=self.previous_prefix[1])
         self.reset()
         raise error
 
     def feed(self,data):
+        self.previous_prefix = (len(self.buffer),int.from_bytes(self.buffer,'little')) if (
+            self.expected_bytes==0 and 0<len(self.buffer)<=3) else None
         now = self.clock()
         if self.partial_since is not None and now-self.partial_since > self.partial_ttl:
             self._fail('partial_timeout')
@@ -80,6 +93,7 @@ class RNDISStream:
             padding = len(self.buffer)-len(self.buffer.lstrip(b'\0'))
             if padding:
                 del self.buffer[:padding]
+                self.padding_bytes += padding
             if not self.buffer:
                 break
             if len(self.buffer) >= 4 and struct.unpack_from('<I',self.buffer)[0] != 1:
@@ -102,7 +116,7 @@ class RNDISStream:
                 break
             ready.append(bytes(self.buffer[start:start+size]))
             del self.buffer[:length]
-            self.partial_since = None;self.expected_bytes = 0
+            self.partial_since = None;self.expected_bytes = 0;self.previous_prefix = None
         if self.buffer and self.partial_since is None:
             self.partial_since = now
         elif not self.buffer:

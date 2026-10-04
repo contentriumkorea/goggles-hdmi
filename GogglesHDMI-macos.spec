@@ -7,7 +7,7 @@ release = json.loads(Path('release_config_macos.json').read_text())
 libusb = str(Path('build/macos/libusb-1.0.dylib').resolve())
 a = Analysis(['app.py'], pathex=[], binaries=[(libusb,'.')],
     datas=[('assets/fpv-drone.ico','assets'),('assets/contentrium-white.png','assets'),
-           ('release_config_macos.json','.'),('release_config.json','.')]+collect_data_files('certifi'),
+           ('build/macos/release_config_macos.json','.'),('release_config.json','.')]+collect_data_files('certifi'),
     hiddenimports=collect_submodules('usb'), hookspath=[], hooksconfig={},
     runtime_hooks=[], excludes=[], noarchive=False, optimize=0)
 pyz = PYZ(a.pure)

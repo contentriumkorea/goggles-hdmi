@@ -149,3 +149,39 @@ def test_rndis_stream_bounds_partial_age_and_declared_length():
     with pytest.raises(RNDISFramingError,match='length_limit'):stream.feed(bad)
     assert stream.buffered_bytes==0
     assert stream.feed(packet)==[b'a'*100]
+
+
+def test_nonzero_single_byte_prefix_reports_header_context_without_resync():
+    from usb_network import RNDISStream,RNDISFramingError,rndis_packet
+    stream=RNDISStream();packet=rndis_packet(b'\0'*1514)
+    assert len(packet)==1558 and stream.feed(b'\x01')==[]
+    with pytest.raises(RNDISFramingError,match='message_type') as caught:stream.feed(packet)
+    error=caught.value
+    assert error.buffered_bytes==1559 and error.expected_bytes==0
+    assert error.context=={'header_type':257,'header_length':398848,
+        'pending_prefix_bytes':1,'pending_prefix_value':1}
+    assert stream.buffered_bytes==0
+    assert stream.feed(packet)==[b'\0'*1514]
+
+
+def test_zero_terminal_padding_and_empty_reads_do_not_become_header_prefix():
+    from usb_network import RNDISStream,rndis_packet
+    clock=[0.0];stream=RNDISStream(clock=lambda:clock[0])
+    packet=rndis_packet(b'\0'*1514)
+    assert stream.feed(packet+b'\0')==[b'\0'*1514]
+    assert stream.feed(b'\0')==[] and stream.buffered_bytes==0
+    clock[0]=2
+    assert stream.feed(b'')==[]
+    assert stream.feed(packet[:1])==[]
+    assert stream.feed(b'')==[]
+    assert stream.feed(packet[1:])==[b'\0'*1514]
+    assert stream.padding_bytes==2
+
+
+def test_consumed_header_prefix_is_not_attributed_to_later_malformed_message():
+    from usb_network import RNDISStream,RNDISFramingError
+    stream=RNDISStream();packet=aligned_message(b'\0'*1514)
+    assert stream.feed(packet[:1])==[]
+    malformed=struct.pack('<2I',9,1558)
+    with pytest.raises(RNDISFramingError) as caught:stream.feed(packet[1:]+malformed)
+    assert caught.value.context=={'header_type':9,'header_length':1558}

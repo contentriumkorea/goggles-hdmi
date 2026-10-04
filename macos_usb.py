@@ -263,6 +263,8 @@ class USBConnection:
             raise OSError('Short RNDIS bulk write')
 
     def _read(self):
+        previous_read_bytes = self.stats.get('last_usb_read_bytes',0)
+        previous_padding_bytes = self.framing.padding_bytes
         self.stats['operation'] = 'usb_read'
         self.stats['usb_read_calls'] = self.stats.get('usb_read_calls',0)+1
         try:
@@ -270,16 +272,22 @@ class USBConnection:
         except OSError as exc:
             if is_timeout(exc):
                 data = b''
+                self.stats['usb_timeout_reads'] = self.stats.get('usb_timeout_reads',0)+1
             else:
                 raise usb_error(exc,self.stats.get('stage','video'),self.stats.get('operation')) from exc
         self.stats['last_usb_read_bytes'] = len(data)
+        if not data:self.stats['usb_empty_reads'] = self.stats.get('usb_empty_reads',0)+1
         self.stats['usb_read_bytes'] = self.stats.get('usb_read_bytes',0)+len(data)
         try:
             self.stats['operation'] = 'rndis_parse'
             frames = self.framing.feed(data)
         except RNDISFramingError as exc:
+            exc.context.update(read_bytes=len(data),previous_read_bytes=previous_read_bytes,
+                usb_read_call=self.stats['usb_read_calls'])
             self.stats['rndis_framing_errors'] = self.stats.get('rndis_framing_errors',0)+1
             raise SupportError('GH-RNDIS-FRAMING',self.stats.get('stage','video'),exc,operation='rndis_parse') from exc
+        finally:
+            self.stats['rndis_zero_padding_bytes'] = self.stats.get('rndis_zero_padding_bytes',0)+self.framing.padding_bytes-previous_padding_bytes
         self.stats['rndis_buffered_bytes'] = self.framing.buffered_bytes
         self.stats['rndis_expected_bytes'] = self.framing.expected_bytes
         self.stats['rndis_max_buffered_bytes'] = max(self.stats.get('rndis_max_buffered_bytes',0),self.framing.buffered_bytes)

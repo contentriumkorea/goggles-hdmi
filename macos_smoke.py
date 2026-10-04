@@ -11,9 +11,9 @@ def run(app,window,output):
     import numpy as np
     from PySide6.QtGui import QImage
     from effects import Processor,Settings
-    from licensing import LicenseState,password_proof
+    from licensing import CONFIG,LicenseState,password_proof
     from macos_usb import usb_backend,find_device
-    from usb_network import NetworkPeer,rndis_packet,rndis_frames,RNDISStream
+    from usb_network import NetworkPeer,rndis_packet,rndis_frames,RNDISStream,RNDISFramingError
     report = {'architecture':platform.machine(),'platform':sys.platform,'hardware_verified':False}
     try:
         if sys.platform != 'darwin' or platform.machine() != 'arm64':
@@ -52,6 +52,12 @@ def run(app,window,output):
         message=rndis_packet(b.datagram(b'\0'*1500));stream=RNDISStream()
         assert stream.feed(message[:31])==[]
         assert a.receive(stream.feed(message[31:])[0])[0]==b'\0'*1500
+        stream=RNDISStream();assert stream.feed(b'\x01')==[]
+        try:stream.feed(rndis_packet(b'\0'*1514))
+        except RNDISFramingError as error:
+            assert error.context['header_type']==257 and error.context['pending_prefix_value']==1
+            report['framing_header_diagnostics']=True
+        else:raise AssertionError('Malformed prefix must remain rejected')
         assert app.platformName() == 'cocoa'
         assert window.copy_problem_button.isEnabled()
         window.copy_problem_button.click()
@@ -59,12 +65,17 @@ def run(app,window,output):
         assert copied.startswith('Goggles HDMI support report\n')
         support = json.loads(copied.split('\n',1)[1])
         assert support['source_mode'] == 'idle'
+        import re
+        assert support['build']==CONFIG['build_revision']
+        assert support['build']=='unknown' or re.fullmatch('[0-9a-f]{40}',support['build'])
+        import os
+        if os.environ.get('GITHUB_ACTIONS')=='true':assert support['build']==os.environ['GITHUB_SHA']
+        report['build_revision']=support['build']
         # Exercise the actual frozen updater against the live signed GitHub feed
         # and redirected package host, with no default interpreter CA available.
         import certifi
         import ssl
         import tempfile
-        from licensing import CONFIG
         from updates import open_https,parse_manifest,stage_online,verify_installer,MAX_MANIFEST
         ca = Path(certifi.where())
         assert ca.is_file() and ca.resolve().is_relative_to(Path(sys._MEIPASS).resolve().parent)

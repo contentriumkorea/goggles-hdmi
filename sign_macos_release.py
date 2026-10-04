@@ -28,7 +28,7 @@ def sign_release(package, key, configuration, output):
         'channel':'macos-preview','installer_kind':'pkg','installer_name':'setup.pkg',
         'size':package.stat().st_size,'sha256':digest,
         'url':f'https://github.com/{configuration["github_repository"]}/releases/download/macos-arm64-v{version}/{name}',
-        'notes':'Mac HTTPS 인증서 저장소 포함 · USB 분할 수신 수정 포함 · 실제 Mac 끊김 재확인 필요 · Apple 설치 확인 필요'}
+        'notes':'Mac USB 프레이밍 숫자 진단·빌드 식별 추가 · 끊김 원인 재확인용 · HTTPS/분할 수신 수정 포함'}
     envelope = {'release':release,'signature':base64.b64encode(key.sign(canonical_release(release))).decode('ascii')}
     manifest = json.dumps(envelope,indent=2,ensure_ascii=False).encode('utf-8')
     output.mkdir(parents=True,exist_ok=True)

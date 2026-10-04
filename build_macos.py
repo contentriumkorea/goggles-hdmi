@@ -68,7 +68,10 @@ def main():
     run('/usr/bin/pkgbuild','--root',str(payload),'--component-plist',str(component),
         '--identifier','com.contentrium.GogglesHDMI','--version',configuration['version'],
         '--install-location','/Applications',str(package))
-    run('/usr/bin/pkgutil','--payload-files',str(package))
+    payload_files = subprocess.check_output(['/usr/sbin/pkgutil','--payload-files',str(package)],text=True)
+    entries = [entry.removeprefix('./') for entry in payload_files.splitlines() if entry not in ('.','./')]
+    if not entries or any(entry != bundle.name and not entry.startswith(bundle.name+'/') for entry in entries):
+        raise SystemExit('Installer payload contains files outside the application bundle')
     info = {'version':configuration['version'],'architecture':'arm64','macos':platform.mac_ver()[0],
             'hardware_verified':False,'apple_signing':'ad-hoc app; unsigned pkg; not notarized',
             'dependencies':{name:importlib.metadata.version(name) for name in ('PySide6','av','numpy','opencv-python-headless','cryptography','pyusb','pyinstaller')}}

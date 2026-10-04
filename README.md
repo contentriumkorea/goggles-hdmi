@@ -1,31 +1,31 @@
 # Goggles HDMI
 
-Goggles 3 / Avata 2 live-view output with grading, stabilization and watermark authentication.
+DJI Goggles 3 / Avata 2의 라이브뷰를 USB로 받아 색보정·안정화 후 외부 화면에 출력하는 콘텐츠리움 프로그램입니다.
 
 ## Windows
 
-The published Windows 10/11 x64 release is **1.1.0**. A Windows **1.2.0** installer adds copyable troubleshooting information after package validation.
+Windows 10/11 x64용 기존 **1.1.0**은 계속 다운로드할 수 있습니다. **1.2.0**은 연결 오류 코드와 문제 정보 복사 기능을 추가한 새 설치 버전입니다.
 
-[Download Windows installer](https://github.com/contentriumkorea/goggles-hdmi/releases/download/v1.1.0/Goggles-HDMI-Setup-1.1.0.exe) · [Windows release](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/v1.1.0)
+[기존 Windows 1.1.0 설치 파일](https://github.com/contentriumkorea/goggles-hdmi/releases/download/v1.1.0/Goggles-HDMI-Setup-1.1.0.exe) · [Windows 최신 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/latest)
 
-Existing Windows clients retain their signed `releases/latest/download/release.json` update channel. Mac assets never replace that manifest or the Windows download.
+기존 Windows 앱의 서명된 `releases/latest/download/release.json` 업데이트 경로는 Windows 설치 파일만 제공합니다. Mac 설치 파일은 이 경로를 사용하지 않습니다.
 
-The **문제 정보 복사** button works before connecting and while retrying. It copies stable `GH-*` error codes, observed connection stages, software/OS details and counters for pasting into a support chat. It uses cached state, never sends data online, and excludes passwords, serial numbers, personal paths, raw logs and video data. Recent errors remain available after recovery.
+앱 상단의 **문제 정보 복사** 버튼은 연결 전이나 재연결 중에도 사용할 수 있습니다. 버튼을 누른 뒤 지원 채팅에 붙여넣으면 `GH-*` 오류 코드, 현재 연결 단계, 앱·운영체제 버전, 수신 상태와 최근 오류를 전달할 수 있습니다. 정상 복구 후에도 최근 오류 기록은 남습니다. 이미 수집된 상태만 사용하며 장치를 다시 검사하거나 인터넷으로 전송하지 않습니다. 비밀번호, 기기 일련번호, 개인 파일 경로, 원본 로그와 영상은 포함하지 않습니다.
 
 ## Apple Silicon macOS
 
-The native **arm64 1.2.0 preview** targets compatible Apple Silicon Macs running **macOS 15.6 or newer**. One package serves M1/M2/M3/M4 and later compatible M-series chips; it does not imply every model was physically tested. Intel Macs, Windows ARM and Linux are outside this release.
+**arm64 1.2.0 미리보기**는 **macOS 15.6 이상**을 사용하는 호환 Apple Silicon Mac을 대상으로 합니다. M1·M2·M3·M4 및 이후 호환 M 시리즈에 공통 설치 파일 하나를 사용합니다. 모든 Mac 모델을 실기기로 검증했다는 의미는 아닙니다. Intel Mac, Windows ARM, Linux는 이 릴리스에 포함되지 않습니다.
 
-[Apple Silicon preview release](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/macos-arm64-v1.2.0-preview) · [Installation and hardware test details](docs/macos-release-notes.md)
+[Apple Silicon 미리보기 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/macos-arm64-v1.2.0-preview) · [설치·실기기 검증 안내](docs/macos-release-notes.md)
 
-**Hardware validation is still required.** Native CI validates the packaged application; no Mac/Goggles 3/external display combination has yet been tested. The app is ad-hoc signed, the pkg is unsigned, and this preview is not Apple notarized. macOS may require its per-app Open Anyway action when offered.
+**고글과 외부 HDMI 화면의 Mac 실기기 검증이 필요합니다.** 네이티브 CI는 ARM 의존성, 패키지 실행과 영상 처리, Cocoa UI 및 클립보드를 검사합니다. 앱은 임시 ad-hoc 서명이며 설치 pkg에는 Apple Developer ID 서명·공증이 없습니다. macOS의 설치·실행 확인이 필요할 수 있습니다.
 
-Enable OTG wired computer connection and live-view sharing on the goggles, connect directly using a data cable, and close other DJI USB clients. The macOS backend uses libusb RNDIS in userspace and never automatically detaches or resets drivers. Cmd+D/Ctrl+D/Escape release output while the application is active. Authentication persistence uses Keychain; updates open Apple's Installer after signature/hash/size checks and still require OS confirmation.
+고글에서 OTG 컴퓨터 유선 연결과 라이브뷰 공유를 켜고 USB 데이터 케이블로 Mac에 직접 연결하세요. 다른 DJI 장치 프로그램은 종료하세요. Mac USB 백엔드는 libusb RNDIS를 사용하며 드라이버를 강제로 분리하거나 장치를 자동 초기화하지 않습니다. 앱 활성 상태에서 Cmd+D / Ctrl+D / Escape 또는 출력 종료 버튼으로 전체화면 출력을 해제합니다. 인증 저장은 macOS 키체인을 사용합니다. Mac 업데이트는 별도 서명 채널에서 검증 후 Apple 설치 프로그램을 열며 운영체제 확인을 거칩니다.
 
-## Source and builds
+## 소스와 빌드
 
-The repository contains the selected application source, public password verifier and Ed25519 verification key, resources, tests and native build workflow. Private release signing keys, actual passwords, personal settings, footage, diagnostic captures and local backups are excluded. Publishing source does not add a new open-source license grant; third-party notices cover bundled dependencies.
+선별된 앱 소스, 공개 비밀번호 검증값·업데이트 검증키, 리소스, 테스트와 Mac 네이티브 빌드 워크플로가 포함돼 있습니다. 비공개 배포 서명키, 실제 비밀번호, 개인 설정·영상·진단 자료와 로컬 백업은 제외됩니다. 소스 공개는 새로운 오픈소스 라이선스 허가를 추가하지 않습니다. 포함된 외부 라이브러리의 고지는 설치본에 제공됩니다.
 
-For a native Apple Silicon build use Python 3.12 on macOS 15.6+, install Homebrew `libusb`, then install `requirements-macos.txt` with binary wheels and run `python -m pytest -q` and `python build_macos.py`. The workflow asserts arm64, checks all Mach-O slices/deployment targets/dependencies, verifies ad-hoc signing, runs frozen H.264/pipeline/UI/no-device smoke checks, and creates a separate prerelease pkg. No publisher signing private key is sent to CI.
+Apple Silicon 빌드는 macOS 15.6 이상에서 Python 3.12와 Homebrew `libusb`를 사용합니다. `requirements-macos.txt`의 바이너리 패키지를 설치하고 `python -m pytest -q`, `python build_macos.py`를 실행합니다. CI는 arm64, Mach-O 최소 운영체제·의존성, ad-hoc 서명, H.264 디코딩·이미지 처리·Cocoa 창·클립보드·고글 미연결 처리를 확인한 후 별도 미리보기 pkg를 만듭니다. 비공개 배포 서명키는 CI에 전달하지 않습니다.
 
-Windows uses the separate `requirements.txt`, `GogglesHDMI.spec`, Inno Setup installer and local `build_release.py`. Existing Windows binaries are retained. Runtime libraries remain shared and their license notices are included in packaged builds.
+Windows는 `requirements.txt`, `GogglesHDMI.spec`, Inno Setup과 로컬 `build_release.py`를 사용합니다. 기존 Windows 릴리스 파일은 보관되며 외부 라이브러리의 라이선스 고지는 설치본에 포함됩니다.

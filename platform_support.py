@@ -40,6 +40,8 @@ def mac_display_info(screen,*,snapshot=None):
 
 def mac_window_state(window):
     """Read actual NSWindow flags on the UI thread; no IDs or titles returned."""
+    from PySide6.QtWidgets import QApplication
+    if QApplication.platformName()!='cocoa':return {}
     import ctypes
     try:
         objc=ctypes.CDLL('/usr/lib/libobjc.A.dylib')

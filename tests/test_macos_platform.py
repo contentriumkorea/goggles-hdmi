@@ -177,3 +177,14 @@ def test_mac_lost_fullscreen_summary_does_not_claim_output_is_running(monkeypatc
         assert '출력 복원 필요' in window.pipeline_status.text()
         assert 'HDMI 출력 복원 필요' in window.summary_status.text()
     finally:window.release_output();window.close()
+
+
+def test_native_window_query_never_passes_offscreen_winid_to_objc(monkeypatch):
+    import ctypes
+    from platform_support import mac_window_state
+    from PySide6.QtWidgets import QApplication
+    monkeypatch.setattr(QApplication,'platformName',staticmethod(lambda:'offscreen'))
+    monkeypatch.setattr(ctypes,'CDLL',lambda *_:(_ for _ in ()).throw(AssertionError('non-Cocoa IDs are not NSView pointers')))
+    class Window:
+        def winId(self):return 1
+    assert mac_window_state(Window())=={}

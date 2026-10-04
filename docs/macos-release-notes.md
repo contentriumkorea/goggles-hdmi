@@ -1,17 +1,17 @@
-Apple Silicon macOS preview, version 1.2.0.
+Apple Silicon macOS 미리보기 · 버전 1.2.0
 
-One native arm64 package targets compatible Apple Silicon Macs (M1, M2, M3, M4 and later M-series) running macOS 15.6 or newer. No model-specific CPU tuning. Intel Macs, Windows ARM and Linux are outside this release.
+macOS 15.6 이상인 호환 Apple Silicon Mac을 대상으로 하는 공통 arm64 설치 파일입니다. M1·M2·M3·M4 및 이후 호환 M 시리즈에 사용하며 모델별 CPU 전용 빌드가 아닙니다. Intel Mac, Windows ARM, Linux는 이 릴리스에 포함되지 않습니다.
 
-This is a **hardware-unverified candidate**. Native CI checks the dependency bundle, H.264 decoding, image pipeline, Qt UI launch, no-device behavior and ad-hoc signature integrity. It cannot verify Goggles 3 USB claims, live video or external HDMI on your Mac. The direct USB backend initializes userspace RNDIS, ARP and UDP; it does not detach/reset USB drivers or configure system networking.
+**Mac과 고글·외부 HDMI 화면의 실기기 검증 전인 미리보기 버전입니다.** 네이티브 CI에서 의존성·H.264 디코딩·이미지 처리·Cocoa UI·클립보드 복사·고글 미연결 처리·ad-hoc 서명 무결성을 확인합니다. 사용자의 Mac에서 Goggles 3 USB 인터페이스 확보, 실제 라이브뷰나 외부 HDMI 출력을 검증한 것은 아닙니다. USB 백엔드는 RNDIS·ARP·UDP를 앱 안에서 처리하며 드라이버 강제 분리·장치 자동 초기화·시스템 네트워크 설정 변경을 하지 않습니다.
 
-Download the `Goggles-HDMI-macOS-arm64-1.2.0-preview.pkg` installer. It installs Goggles HDMI in Applications. The app is ad-hoc signed; the package is unsigned and neither is Apple notarized. Gatekeeper may block installation or launch. Use Apple's per-app Open Anyway action only if offered for this downloaded package/app; no security policy changes are required by the application. A Developer ID/notarized production release requires publisher credentials that are not available for this candidate.
+`Goggles-HDMI-macOS-arm64-1.2.0-preview.pkg`를 다운로드하면 응용 프로그램 폴더에 Goggles HDMI가 설치됩니다. 앱에는 임시 ad-hoc 서명이 있지만 설치 pkg에는 Apple Developer ID 서명이 없으며 Apple 공증도 없습니다. Gatekeeper가 설치나 실행을 제한할 수 있습니다. macOS가 제공하는 설치·실행 확인 화면을 따르세요. 프로그램은 시스템 보안 기능을 끄도록 요구하지 않습니다. 정식 Developer ID 서명·공증을 위한 배포자 인증서는 이번 빌드에 사용되지 않았습니다.
 
-Connect Goggles 3 directly using a USB data cable. Enable OTG wired computer connection and live-view sharing in the goggles, and close DJI Assistant or other device clients. In Goggles HDMI, use USB setup for instructions and then connect. Progress distinguishes USB device, interfaces, RNDIS, ARP, video packets and decoding. USB diagnostics omit device serials. A BUSY/ACCESS error is reported rather than forcibly capturing the composite device.
+USB 데이터 케이블로 Goggles 3를 직접 연결하세요. 고글에서 OTG 컴퓨터 유선 연결과 라이브뷰 공유를 켜고 DJI Assistant 등 다른 장치 프로그램은 종료하세요. 앱의 USB 설정에서 안내를 확인하고 연결하세요. USB 장치·인터페이스·RNDIS·ARP·영상 패킷·디코딩 단계가 구분됩니다. 권한·사용 중 오류가 나면 오류 코드를 표시하며 장치를 강제로 가져오지 않습니다.
 
-Use an extended external display and select it for output. Cmd+D / Ctrl+D and Escape release output while this app is active; the control window also has an output-stop button. These are app shortcuts, not macOS global hotkeys. Display sleep inhibition lasts only while output is active. Saved watermark authentication uses macOS Keychain; denial allows session-only authentication.
+외부 화면을 확장 모드로 연결하고 출력 화면으로 선택하세요. 앱 활성 상태에서 Cmd+D / Ctrl+D / Escape 또는 제어창의 출력 종료 버튼으로 출력을 해제합니다. 이 키는 macOS 전역 단축키가 아닙니다. 화면 잠자기 방지는 출력 중에만 적용됩니다. 워터마크 인증 저장은 macOS 키체인을 사용하며 저장이 거부되면 현재 실행 중에만 인증을 유지합니다.
 
-Windows uses the repository's stable/latest release and retains the historical 1.1.0 download. This Mac preview uses a separate signed arm64 update channel and never becomes the Windows latest update. Apple's Installer requires OS confirmation after a verified update download; it does not run silently.
+Windows는 기존 stable/latest 업데이트 경로를 유지하며 1.1.0 릴리스도 보관합니다. Mac 미리보기는 별도의 서명된 arm64 업데이트 경로를 사용하고 Windows 최신 업데이트가 되지 않습니다. 검증된 Mac 업데이트는 Apple 설치 프로그램을 열며 운영체제 확인을 거칩니다.
 
-The always-available **문제 정보 복사** button copies observed stages and stable GH-* error codes, software/OS details, transport counters and recent sanitized issues for pasting into a support chat. It works before connection or diagnosis and does not query devices or send information online. Passwords, serials, personal paths, arbitrary URLs, raw logs and video data are excluded.
+상단의 **문제 정보 복사**를 누른 뒤 지원 채팅에 붙여넣으세요. 현재 단계와 GH-* 오류 코드, 앱·운영체제 정보, 수신 수치와 최근 오류가 복사됩니다. 연결·진단 전에도 동작하며 버튼을 눌러 장치를 재검사하거나 인터넷으로 보내지 않습니다. 비밀번호, 일련번호, 개인 파일 경로, 임의 URL, 원본 로그와 영상은 제외합니다.
 
-Hardware acceptance still needed: USB enumeration → safe interface claim → RNDIS → ARP → DJI packets → decoded dimensions → external output; repeated connect/disconnect and quit/reopen; Keychain authentication; grading/stabilization; physical display modes; release action and a ten-minute live run. Measure input frame rate separately from output refresh.
+실기기에서 남은 확인: USB 인식 → 인터페이스 확보 → RNDIS → ARP → DJI 패킷 → 디코딩 해상도 → 외부 출력; 재연결·종료 후 재실행; 키체인 인증 저장; 색보정·안정화; 실제 화면 픽셀 모드; 출력 해제와 10분 라이브뷰 유지. 입력 프레임률과 출력 화면 주사율은 구분해서 확인해야 합니다.

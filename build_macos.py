@@ -52,8 +52,10 @@ def main():
     (release/'bundle-audit.json').write_text(json.dumps(audit(bundle),indent=2),encoding='utf-8')
     smoke = release/'smoke.json'
     smoke_environment = dict(os.environ,QT_QPA_PLATFORM='cocoa')
-    subprocess.run([str(bundle/'Contents/MacOS/Goggles HDMI'),'--mac-smoke',str(smoke)],
-        check=True,cwd=ROOT,env=smoke_environment,timeout=90)
+    result = subprocess.run([str(bundle/'Contents/MacOS/Goggles HDMI'),'--mac-smoke',str(smoke)],
+        check=False,cwd=ROOT,env=smoke_environment,timeout=90)
+    if smoke.is_file():print(smoke.read_text(encoding='utf-8')[:16384],flush=True)
+    result.check_returncode()
     if not json.loads(smoke.read_text()).get('ok'):
         raise SystemExit('Packaged smoke failed')
     # Non-relocatable package targets /Applications only. macOS handles permission.

@@ -81,6 +81,7 @@ def run(app,window,output):
         from PySide6.QtTest import QTest
         from PySide6.QtCore import Qt
         import time
+        report['stage']='native_display_modes'
         modes=[mac_display_info(screen) for screen in QApplication.screens()]
         assert modes and all(info['reason']=='ok' and min(info['pixels'])>0 for info in modes)
         report['native_display_modes']=True
@@ -90,19 +91,24 @@ def run(app,window,output):
                 QTest.qWait(50)
                 if predicate():return
             raise AssertionError('Native output state did not settle')
+        report['stage']='fullscreen_enter'
         window.open_output()
         wait_native(lambda:mac_window_state(window.output).get('native_fullscreen') is True)
+        report['stage']='clipboard_fullscreen'
         window.copy_problem_button.click()
         current=json.loads(app.clipboard().text().split('\n',1)[1])['output']
         assert current['native_fullscreen'] is True and current['native_visible'] is True
         assert window.output.windowHandle().screen()==QApplication.screens()[window.screens.currentIndex()]
         # Leaving native fullscreen used to retain a locked but windowed output.
+        report['stage']='fullscreen_repair'
         window.output.showNormal()
         wait_native(lambda:window.output.fullscreen_repairs==1 and mac_window_state(window.output).get('native_fullscreen') is True)
+        report['stage']='escape_release'
         QTest.keyClick(window.output,Qt.Key_Escape)
         wait_native(lambda:not window.output.isVisible() and not window.output.locked)
         QTest.qWait(400)
         assert not window.output.isVisible() and not window.output.fullscreen_repair.isActive()
+        report['stage']='clipboard_release'
         window.copy_problem_button.click()
         current=json.loads(app.clipboard().text().split('\n',1)[1])['output']
         assert current['locked'] is False and current['visible'] is False and current['native_visible'] is False
@@ -113,6 +119,7 @@ def run(app,window,output):
         import ssl
         import tempfile
         from updates import open_https,parse_manifest,stage_online,verify_installer,MAX_MANIFEST
+        report['stage']='https'
         ca = Path(certifi.where())
         assert ca.is_file() and ca.resolve().is_relative_to(Path(sys._MEIPASS).resolve().parent)
         context = ssl.create_default_context(cafile=str(ca))
@@ -136,6 +143,11 @@ def run(app,window,output):
         report.update(ok=True,decoded_frames=len(frames),pipeline=True,gui=True,qt_platform=app.platformName(),libusb=True,clipboard=True,partial_usb_stream=True)
         code = 0
     except Exception as exc:
+        if report.get('stage','').startswith(('fullscreen','clipboard','escape')):
+            from platform_support import mac_window_state
+            report['output_state']={**mac_window_state(window.output),'qt_fullscreen':window.output.isFullScreen(),
+                'qt_visible':window.output.isVisible(),'locked':window.output.locked,
+                'repairs':window.output.fullscreen_repairs,'application_active':app.applicationState().value}
         report.update(ok=False,error=type(exc).__name__+': '+str(exc));code = 1
     Path(output).write_text(json.dumps(report,indent=2),encoding='utf-8')
     window.release_output();window.close();app.exit(code)

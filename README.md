@@ -14,9 +14,11 @@ Windows 10/11 x64용 최신 **1.2.0**은 연결 오류 코드와 문제 정보 �
 
 ## Apple Silicon macOS
 
-**arm64 1.2.4**은 **macOS 15.6 이상**을 사용하는 호환 Apple Silicon Mac을 대상으로 합니다. M1·M2·M3·M4 및 이후 호환 M 시리즈에 공통 설치 파일 하나를 사용합니다. 모든 Mac 모델을 실기기로 검증했다는 의미는 아닙니다. Intel Mac, Windows ARM, Linux는 이 릴리스에 포함되지 않습니다.
+**arm64 1.2.5**는 **macOS 15.6 이상**을 사용하는 호환 Apple Silicon Mac을 대상으로 합니다. M1·M2·M3·M4 및 이후 호환 M 시리즈에 공통 설치 파일 하나를 사용합니다. 모든 Mac 모델을 실기기로 검증했다는 의미는 아닙니다. Intel Mac, Windows ARM, Linux는 이 릴리스에 포함되지 않습니다.
 
-[Apple Silicon 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/macos-arm64-v1.2.4) · [설치·실기기 검증 안내](docs/macos-release-notes.md)
+[Apple Silicon 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/macos-arm64-v1.2.5) · [설치·실기기 검증 안내](docs/macos-release-notes.md)
+
+**1.2.5는 화면 픽셀 매칭과 Mac 전체화면 상태 복원을 수정합니다.** Qt와 같은 NSScreen 좌표로 실제 픽셀 모드를 조회합니다. 출력 의도가 유지되는데 전체화면 상태만 풀리면 활성 앱·같은 화면일 때 한 번 복원하고, 다른 앱의 포커스는 가져오지 않습니다. 종료하면 예약 복원이 취소되며 복원 버튼도 제공됩니다. 창 상태·화면 순번·안전한 출력 이벤트를 문제 정보에 추가했습니다. 실제 외부 모니터의 유지 여부는 재시험이 필요합니다. 1.2.4 실사용 보고서에서 USB 재연결 0회가 확인됐으며 해당 USB 수정은 유지합니다.
 
 **1.2.4는 실제 보고된 읽기 경계의 잔여 1바이트 충돌을 재현하고 제한적으로 복구합니다.** 이미 정상 메시지를 받은 연결에서 이전 읽기의 비정상 1바이트와 독립 검증된 완전한 새 읽기가 만난 경우에만 복구합니다. 정상 분할 헤더·데이터와 네트워크 검증은 유지하고 다른 잘못된 데이터는 계속 거부합니다. 문제 정보에 복구 횟수와 `GH-RNDIS-RECOVERED` 기록이 추가되며 원본 영상·바이트 덤프는 포함하지 않습니다. 잔여 바이트의 발생 계층은 아직 확인되지 않았고, 실제 끊김 개선 여부는 Mac 재시험이 필요합니다.
 

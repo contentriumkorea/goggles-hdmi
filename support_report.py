@@ -49,6 +49,33 @@ REASONS = {'partial_timeout','buffer_limit','message_type','length_limit','data_
 OPERATIONS = {'usb_read','usb_write','rndis_parse','network_receive','rndis_keepalive','rndis_initialize',
               'rndis_query_mac','rndis_query_mtu','rndis_set_filter','arp_send','session_send','ack_send',
               'video_receive','decode_create','decode_parse','decode_frame','decode_recovery'}
+DISPLAY_REASONS={'ok','screen_unmatched','screen_ambiguous','mode_unavailable','native_query_failed'}
+OUTPUT_EVENTS={'show','hide','activate','deactivate','window_state','repair_skipped','fullscreen_repair',
+               'topology','window_screen','manual_restore','open','release','screen_added','screen_removed','escape'}
+
+
+def safe_output(value):
+    if not isinstance(value,dict):return {}
+    result={key:number for key in ('width','height','refresh_hz','dpr','screen_count','window_state','fullscreen_repairs')
+            if type(number:=value.get(key)) in (int,float) and math.isfinite(number) and 0<=number<=100000}
+    for key in ('locked','visible','fullscreen','minimized','pending','native_fullscreen','native_visible','native_minimized'):
+        if type(value.get(key)) is bool:result[key]=value[key]
+    for key in ('index','requested_screen','actual_screen'):
+        if type(number:=value.get(key)) is int and -1<=number<=31:result[key]=number
+    if isinstance(value.get('mode_reason'),str) and value['mode_reason'] in DISPLAY_REASONS:result['mode_reason']=value['mode_reason']
+    if isinstance(value.get('release_reason'),str) and value['release_reason'] in ('not_started','user_release','screen_removed'):
+        result['release_reason']=value['release_reason']
+    geometry=value.get('geometry')
+    if isinstance(geometry,list) and len(geometry)==4 and all(type(n) is int and -100000<=n<=100000 for n in geometry):
+        result['geometry']=geometry[:]
+    events=value.get('events')
+    if isinstance(events,list):
+        result['events']=[dict(safe_output({k:v for k,v in event.items() if k!='events' and k!='screens'}),event=event['event'])
+            for event in events[-10:] if isinstance(event,dict) and isinstance(event.get('event'),str) and event['event'] in OUTPUT_EVENTS]
+    screens=value.get('screens')
+    if isinstance(screens,list):result['screens']=[safe_output({k:v for k,v in s.items() if k!='screens' and k!='events'})
+        for s in screens[:16] if isinstance(s,dict)]
+    return result
 
 
 def utc_now():
@@ -179,8 +206,7 @@ def build_report(*, version, build_revision=None, platform=None, os_version=None
     if isinstance(diagnosis,dict):
         report['device_detail'] = {'collected':True,'matching_devices':min(100,len(diagnosis.get('DJIDevices',[]))) if isinstance(diagnosis.get('DJIDevices'),list) else 'unknown',
                                    'interfaces':min(100,len(diagnosis.get('interfaces',[]))) if isinstance(diagnosis.get('interfaces'),list) else 'unknown'}
-    report['output'] = {key:value for key,value in (output or {}).items() if key in ('width','height','refresh_hz') and
-        type(value) in (int,float) and math.isfinite(value) and 0 <= value <= 100000}
+    report['output'] = safe_output(output)
     now = time.monotonic()
     for name,stamp in (('packet_age_seconds',stats.get('last_packet_time')),('frame_age_seconds',last_frame)):
         report[name] = round(max(0,now-stamp),3) if type(stamp) in (int,float) and 0 < stamp <= now else 'unknown'

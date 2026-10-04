@@ -76,6 +76,37 @@ def run(app,window,output):
         import os
         if os.environ.get('GITHUB_ACTIONS')=='true':assert support['build']==os.environ['GITHUB_SHA']
         report['build_revision']=support['build']
+        from platform_support import mac_display_info,mac_window_state
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtTest import QTest
+        from PySide6.QtCore import Qt
+        import time
+        modes=[mac_display_info(screen) for screen in QApplication.screens()]
+        assert modes and all(info['reason']=='ok' and min(info['pixels'])>0 for info in modes)
+        report['native_display_modes']=True
+        def wait_native(predicate):
+            until=time.monotonic()+5
+            while time.monotonic()<until:
+                QTest.qWait(50)
+                if predicate():return
+            raise AssertionError('Native output state did not settle')
+        window.open_output()
+        wait_native(lambda:mac_window_state(window.output).get('native_fullscreen') is True)
+        window.copy_problem_button.click()
+        current=json.loads(app.clipboard().text().split('\n',1)[1])['output']
+        assert current['native_fullscreen'] is True and current['native_visible'] is True
+        assert window.output.windowHandle().screen()==QApplication.screens()[window.screens.currentIndex()]
+        # Leaving native fullscreen used to retain a locked but windowed output.
+        window.output.showNormal()
+        wait_native(lambda:window.output.fullscreen_repairs==1 and mac_window_state(window.output).get('native_fullscreen') is True)
+        QTest.keyClick(window.output,Qt.Key_Escape)
+        wait_native(lambda:not window.output.isVisible() and not window.output.locked)
+        QTest.qWait(400)
+        assert not window.output.isVisible() and not window.output.fullscreen_repair.isActive()
+        window.copy_problem_button.click()
+        current=json.loads(app.clipboard().text().split('\n',1)[1])['output']
+        assert current['locked'] is False and current['visible'] is False and current['native_visible'] is False
+        report.update(native_fullscreen=True,native_fullscreen_repair=True,native_output_release=True)
         # Exercise the actual frozen updater against the live signed GitHub feed
         # and redirected package host, with no default interpreter CA available.
         import certifi

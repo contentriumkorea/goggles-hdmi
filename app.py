@@ -116,12 +116,17 @@ class VideoSurface(QWidget):
 
 class OutputWindow(VideoSurface):
     release_requested = Signal()
+    state_observed = Signal(str)
     HOTKEY_ID = 0x4748
 
     def __init__(self):
         self.locked = False
         self.hotkey_registered = False
         self.awake_process = None
+        self.output_screen = None
+        self.fullscreen_repairs = 0
+        self.output_generation = 0
+        self.repair_generation = None
         super().__init__()
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setWindowTitle('Goggles HDMI — 영상 출력')
@@ -129,6 +134,10 @@ class OutputWindow(VideoSurface):
         self.topmost_guard = QTimer(self)
         self.topmost_guard.setInterval(100)
         self.topmost_guard.timeout.connect(self.enforce_topmost)
+        self.fullscreen_repair = QTimer(self)
+        self.fullscreen_repair.setSingleShot(True)
+        self.fullscreen_repair.setInterval(250)
+        self.fullscreen_repair.timeout.connect(self.repair_fullscreen)
         if os.name == 'nt':
             import ctypes
             from ctypes import wintypes
@@ -151,9 +160,36 @@ class OutputWindow(VideoSurface):
             if not self.hotkey_registered:
                 return False
         self.locked = True
+        self.output_generation += 1
+        self.fullscreen_repairs = 0
         if sys.platform != 'darwin':
             self.topmost_guard.start()
         return True
+
+    def present(self, screen):
+        self.output_generation += 1
+        self.fullscreen_repairs = 0
+        self.fullscreen_repair.stop()
+        self.output_screen = screen
+        self.winId()  # Create while hidden, then select the screen before first show.
+        self.windowHandle().setScreen(screen)
+        self.setGeometry(screen.geometry())
+        self.showFullScreen()
+
+    def repair_fullscreen(self):
+        if (not self.locked or self.repair_generation!=self.output_generation
+                or self.fullscreen_repairs or self.isFullScreen() or not self.isVisible()
+                or QApplication.applicationState()!=Qt.ApplicationActive
+                or self.output_screen not in QApplication.screens()
+                or self.windowHandle().screen()!=self.output_screen):
+            self.state_observed.emit('repair_skipped')
+            return
+        self.fullscreen_repairs += 1
+        self.showFullScreen()
+        self.state_observed.emit('fullscreen_repair')
+
+    def restore_minimized(self):
+        if self.locked:self.showFullScreen()
 
     def enforce_topmost(self):
         if sys.platform == 'darwin':
@@ -171,7 +207,11 @@ class OutputWindow(VideoSurface):
     def event(self, event):
         if self.locked and event.type() == QEvent.WindowDeactivate:
             QTimer.singleShot(0,self.enforce_topmost)
-        return super().event(event)
+        result = super().event(event)
+        if event.type() in (QEvent.Show,QEvent.Hide,QEvent.WindowActivate,QEvent.WindowDeactivate):
+            self.state_observed.emit({QEvent.Show:'show',QEvent.Hide:'hide',
+                QEvent.WindowActivate:'activate',QEvent.WindowDeactivate:'deactivate'}[event.type()])
+        return result
 
     def nativeEvent(self, event_type, message):
         if os.name == 'nt' and self.locked:
@@ -205,6 +245,8 @@ class OutputWindow(VideoSurface):
 
     def release(self):
         self.locked = False
+        self.output_generation += 1
+        self.fullscreen_repair.stop()
         self.topmost_guard.stop()
         if os.name == 'nt' and self.hotkey_registered:
             self.user32.UnregisterHotKey(int(self.winId()),self.HOTKEY_ID)
@@ -220,12 +262,20 @@ class OutputWindow(VideoSurface):
 
     def changeEvent(self, event):
         super().changeEvent(event)
-        if self.locked and self.isMinimized():
-            QTimer.singleShot(0, self.showFullScreen)
+        if event.type()==QEvent.WindowStateChange:
+            self.state_observed.emit('window_state')
+            if sys.platform=='darwin':
+                if (self.locked and event.oldState() & Qt.WindowFullScreen and not self.isFullScreen()
+                        and not self.fullscreen_repairs):
+                    self.repair_generation=self.output_generation
+                    self.fullscreen_repair.start()
+            elif self.locked and self.isMinimized():
+                QTimer.singleShot(0, self.restore_minimized)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
             if sys.platform == 'darwin':
+                self.state_observed.emit('escape')
                 self.release_requested.emit()
             event.accept()
         else:
@@ -331,12 +381,16 @@ class MainWindow(QMainWindow):
         self.component_issues = {}
         self.cached_diagnosis = None
         self.support_output = {}
+        self.display_modes = []
+        self.output_events = deque(maxlen=10)
+        self.output_release_reason = 'not_started'
         self.usb_note = None
         self.last_usb_note = None
         self.usb_auto_output_pending = False
         self.output = OutputWindow()
         self.output.trace = self.trace
         self.output.release_requested.connect(self.release_output)
+        self.output.state_observed.connect(self.observe_output)
         QApplication.instance().aboutToQuit.connect(self.output.release)
         self.exit_output_shortcut = QShortcut(QKeySequence('Ctrl+D'), self)
         self.exit_output_shortcut.setContext(Qt.ApplicationShortcut)
@@ -356,6 +410,11 @@ class MainWindow(QMainWindow):
         for surface in (self.preview, self.output):
             surface.watermark = self.watermark
             self.watermark.changed.connect(surface.update)
+        self.display_refresh_timer = QTimer(self)
+        self.display_refresh_timer.setSingleShot(True)
+        self.display_refresh_timer.setInterval(150)
+        self.display_refresh_timer.timeout.connect(self.refresh_screens)
+        self.display_retry_count = 0
         self.refresh_screens()
         QApplication.instance().screenAdded.connect(self.screen_added)
         QApplication.instance().screenRemoved.connect(self.screen_removed)
@@ -516,7 +575,14 @@ class MainWindow(QMainWindow):
     def watch_control_screen(self, screen):
         screen.geometryChanged.connect(self.schedule_control_placement)
         screen.availableGeometryChanged.connect(self.schedule_control_placement)
+        screen.geometryChanged.connect(self.schedule_display_refresh)
+        screen.refreshRateChanged.connect(self.schedule_display_refresh)
         self.schedule_control_placement()
+
+    def schedule_display_refresh(self,*_):
+        if hasattr(self,'display_refresh_timer'):
+            self.display_retry_count=0
+            self.display_refresh_timer.start()
 
     def schedule_control_placement(self, *_):
         if hasattr(self,'placement_timer'): self.placement_timer.start(0)
@@ -634,6 +700,14 @@ class MainWindow(QMainWindow):
         self.refresh_actions()
 
     def toggle_output(self):
+        if (sys.platform=='darwin' and self.output.locked and not self.output_pending
+                and (not self.output.isFullScreen() or not self.output.isVisible())
+                and self.output.output_screen in QApplication.screens()):
+            self.output.present(self.output.output_screen)
+            self.output.activateWindow()  # Explicit user action, never automatic repair.
+            self.observe_output('manual_restore')
+            self.refresh_actions()
+            return
         if self.output.locked or self.output_pending:
             self.release_output()
         else:
@@ -651,7 +725,8 @@ class MainWindow(QMainWindow):
         self.pattern_button.setEnabled(not busy)
         self.stop_button.setEnabled(active)
         output_active = bool(self.output.locked or self.output_pending)
-        self.output_button.setText('대기 취소' if self.output_pending else ('출력 종료' if self.output.locked else '출력 시작'))
+        restore = sys.platform=='darwin' and self.output.locked and (not self.output.isFullScreen() or not self.output.isVisible())
+        self.output_button.setText('대기 취소' if self.output_pending else ('출력 복원' if restore else ('출력 종료' if self.output.locked else '출력 시작')))
         self.output_button.setEnabled(output_active or self.screens.count() > 0)
         self.screens.setEnabled(not output_active)
         live = bool(self.last_frame and time.monotonic()-self.last_frame < 2 and self.mode != 'idle')
@@ -664,8 +739,14 @@ class MainWindow(QMainWindow):
         if old is None and self.settings:
             old = self.settings.value('screenName', '')
         self.screens.clear()
+        self.display_modes=[]
         for i, screen in enumerate(QApplication.screens()):
-            width, height = screen_pixel_size(screen)
+            reason='ok'
+            if sys.platform=='darwin':
+                from platform_support import mac_display_info
+                info=mac_display_info(screen);width,height=info['pixels'] or (0,0);reason=info['reason']
+            else:width,height=screen_pixel_size(screen)
+            self.display_modes.append((screen,{'width':width,'height':height,'mode_reason':reason}))
             name = screen.model().strip() or f'화면 {i+1}'
             dimensions = f'{width}×{height} 실제 픽셀' if width and height else '픽셀 모드 확인 불가'
             self.screens.addItem(f'{name} · {dimensions}', screen.name())
@@ -676,23 +757,36 @@ class MainWindow(QMainWindow):
         elif self.screens.count() > 1:
             self.screens.setCurrentIndex(1)
         self.refresh_actions()
+        self.observe_output('topology')
+        if sys.platform=='darwin' and any(info['mode_reason']!='ok' for _,info in self.display_modes):
+            if self.display_retry_count<3:
+                self.display_retry_count+=1
+                self.display_refresh_timer.start(250)
+        else:self.display_retry_count=0
 
     def screen_removed(self, removed):
-        if self.output_target == removed.name() and self.output.locked:
+        selected = self.output.output_screen is removed if sys.platform=='darwin' else self.output_target == removed.name()
+        if selected and self.output.locked:
             self.output_pending = self.output_target
             self.output.release()
+            self.output_release_reason='screen_removed'
+            self.observe_output('screen_removed')
             self.log('출력 화면 분리 · 같은 화면이 다시 연결될 때까지 출력 대기')
         self.refresh_screens()
 
     def screen_added(self, screen):
         self.refresh_screens()
-        if self.output_pending == screen.name():
+        self.observe_output('screen_added')
+        same=[s for s in QApplication.screens() if s.name()==self.output_pending]
+        if self.output_pending == screen.name() and (sys.platform!='darwin' or len(same)==1):
             index = self.screens.findData(screen.name())
             self.screens.setCurrentIndex(index)
             QTimer.singleShot(300, self.restore_output)
 
     def restore_output(self):
-        if self.output_pending and self.screens.findData(self.output_pending) >= 0:
+        same=[s for s in QApplication.screens() if s.name()==self.output_pending]
+        if (self.output_pending and self.screens.findData(self.output_pending) >= 0
+                and (sys.platform!='darwin' or len(same)==1)):
             self.screens.setCurrentIndex(self.screens.findData(self.output_pending))
             self.open_output()
 
@@ -712,10 +806,15 @@ class MainWindow(QMainWindow):
         self.support_output = {'width':width,'height':height,'refresh_hz':screens[index].refreshRate()}
         self.component_issues.pop('output',None)
         self.output_pending = None
-        self.output.setGeometry(screens[index].geometry())
-        self.output.show()
-        self.output.windowHandle().setScreen(screens[index])
-        self.output.showFullScreen()
+        if sys.platform=='darwin':self.output.present(screens[index])
+        else:
+            self.output.setGeometry(screens[index].geometry())
+            self.output.show()
+            self.output.windowHandle().setScreen(screens[index])
+            self.output.showFullScreen()
+        if not self.output.property('screen_signal_connected'):
+            self.output.windowHandle().screenChanged.connect(lambda *_:self.observe_output('window_screen'))
+            self.output.setProperty('screen_signal_connected',True)
         self.output.enforce_topmost()
         self.output.activateWindow()
         if self.settings:
@@ -724,12 +823,43 @@ class MainWindow(QMainWindow):
         self.log('전체화면 출력 중 · 앱 활성 상태에서 Cmd+D / Escape 또는 출력 종료 버튼으로 해제합니다.' if sys.platform == 'darwin' else
                  '최상단 전체화면 유지 중. 다른 앱을 선택해도 Ctrl+D로 해제할 수 있습니다.')
         self.refresh_actions()
+        self.observe_output('open')
 
     def release_output(self):
+        self.output_release_reason='user_release'
         self.output_pending = None
         self.usb_auto_output_pending = False
         self.output.release()
         self.refresh_actions()
+        self.observe_output('release')
+
+    def observe_output(self,event):
+        screens=QApplication.screens()
+        target=self.output.output_screen if sys.platform=='darwin' else next((s for s in screens if s.name()==self.output_target),None)
+        index=screens.index(target) if target in screens else -1
+        mode=next((info for screen,info in self.display_modes if screen is target),
+            {'width':0,'height':0,'mode_reason':'screen_unmatched'})
+        handle=self.output.windowHandle()
+        actual=handle.screen() if handle else None
+        geometry=self.output.geometry()
+        self.support_output.update(mode,locked=self.output.locked,visible=self.output.isVisible(),
+            fullscreen=self.output.isFullScreen(),minimized=self.output.isMinimized(),pending=bool(self.output_pending),
+            requested_screen=index,screen_count=len(screens),window_state=self.output.windowState().value,
+            actual_screen=screens.index(actual) if actual in screens else -1,
+            fullscreen_repairs=self.output.fullscreen_repairs,release_reason=self.output_release_reason,
+            geometry=[geometry.x(),geometry.y(),geometry.width(),geometry.height()])
+        self.support_output['refresh_hz']=target.refreshRate() if target in screens else 0
+        for key in ('native_fullscreen','native_visible','native_minimized'):self.support_output.pop(key,None)
+        if sys.platform=='darwin' and handle:
+            from platform_support import mac_window_state
+            self.support_output.update(mac_window_state(self.output))
+        if event is not None:
+            self.output_events.append({'event':event,**{key:self.support_output[key] for key in
+                ('locked','visible','fullscreen','window_state','release_reason','requested_screen','actual_screen')},
+                **{key:self.support_output[key] for key in ('native_visible','native_fullscreen') if key in self.support_output}})
+        self.support_output['events']=list(self.output_events)
+        self.support_output['screens']=[{'index':i,'geometry':[s.geometry().x(),s.geometry().y(),s.geometry().width(),s.geometry().height()],
+            'dpr':s.devicePixelRatio(),**info} for i,(s,info) in enumerate(self.display_modes[:16])]
 
     def setup_usb(self):
         if sys.platform == 'darwin':
@@ -974,7 +1104,8 @@ class MainWindow(QMainWindow):
         packet_age = now-self.usb_stats.get('last_packet_time', 0)
         communicating = self.mode == 'usb' and packet_age < 3
         usb = '인식됨' if communicating else self.usb_device_state
-        output = '출력 중' if self.output.locked else ('모니터 재연결 대기' if self.output_pending else '꺼짐')
+        needs_restore = sys.platform=='darwin' and self.output.locked and (not self.output.isVisible() or not self.output.isFullScreen())
+        output = '출력 복원 필요' if needs_restore else ('출력 중' if self.output.locked else ('모니터 재연결 대기' if self.output_pending else '꺼짐'))
         self.pipeline_status.setText(f'USB {usb} → 고글 통신 {"정상" if communicating else "대기"} → 영상 {"수신 중" if live else "대기"} → {output}')
         screen = next((s for s in QApplication.screens() if s.name() == self.output_target), None)
         hz = f'{screen.refreshRate():.2f}' if screen and self.output.locked else '—'
@@ -987,7 +1118,7 @@ class MainWindow(QMainWindow):
         dimensions = f'{frame.width()}×{frame.height()}' if live and not frame.isNull() else '영상 대기'
         source = '고글' if self.mode == 'usb' else ('테스트' if self.mode in ('stream','pattern') else '수신 대기')
         fault = ' · 보정 오류: 진단 확인' if self.effect_fault or self.preview_fault else ''
-        output_summary = 'HDMI 출력 중' if self.output.locked else ('모니터 재연결 대기' if self.output_pending else 'HDMI 꺼짐')
+        output_summary = 'HDMI 출력 복원 필요' if needs_restore else ('HDMI 출력 중' if self.output.locked else ('모니터 재연결 대기' if self.output_pending else 'HDMI 꺼짐'))
         if self.raw_output: output_summary += ' · 원본'
         issue = self.usb_stats.get('active_issue')
         issue_summary = (' · ['+issue['code']+'] '+issue['message']) if issue and self.mode == 'usb' else ''
@@ -1025,6 +1156,8 @@ class MainWindow(QMainWindow):
         self.log('['+record['code']+'] '+record['message'])
 
     def problem_report(self):
+        # Cheap GUI-window state only; no USB/display enumeration or subprocess.
+        self.observe_output(None)
         with self.lock:
             stats = dict(self.usb_stats)
             stats['issue_history'] = list(self.support_history)

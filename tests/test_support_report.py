@@ -137,3 +137,18 @@ def test_recovery_report_is_inactive_bounded_and_numeric_only():
     assert data['recent_issues'][0]['context']['validated_messages']==1
     error.context={'validated_messages':65536,'pending_prefix_value':True}
     assert SupportError('GH-RNDIS-RECOVERED','video',error).context=={'buffered_bytes':1,'expected_bytes':0}
+
+
+def test_display_report_excludes_names_ids_and_nested_raw_values():
+    from support_report import build_report
+    output={'width':3840,'height':2160,'native_fullscreen':False,'locked':True,'visible':False,
+        'mode_reason':'screen_unmatched','requested_screen':1,'actual_screen':0,'geometry':[-1920,0,1920,1080],
+        'display_id':123456,'name':'PRIVATE NAME','serial':'PRIVATE SERIAL','path':'/Users/private',
+        'events':[{'event':'hide','visible':False,'name':'PRIVATE NAME'}]*20,
+        'screens':[{'index':0,'dpr':2,'width':3840,'name':'PRIVATE NAME'}]*30}
+    text=build_report(version='1.2.5',output=output);data=json.loads(text.split('\n',1)[1])['output']
+    assert 'PRIVATE' not in text and '/Users/' not in text and 'display_id' not in text
+    assert len(data['events'])==10 and len(data['screens'])==16
+    assert data['native_fullscreen'] is False and data['geometry']==[-1920,0,1920,1080]
+    output={'mode_reason':['private'],'events':[{'event':['private']}],'geometry':[0,True,1,2]}
+    assert json.loads(build_report(version='1.2.5',output=output).split('\n',1)[1])['output']=={'events':[]}

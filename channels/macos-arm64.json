@@ -1,16 +1,16 @@
 {
   "release": {
     "product": "GogglesHDMI-Next",
-    "version": "1.2.3",
+    "version": "1.2.4",
     "platform": "darwin",
     "architecture": "arm64",
     "channel": "macos-preview",
     "installer_kind": "pkg",
     "installer_name": "setup.pkg",
-    "size": 112267815,
-    "sha256": "b7ae082572641a487577d68eb9561585306a76053889a2d73a93adc04bd7e90f",
-    "url": "https://github.com/contentriumkorea/goggles-hdmi/releases/download/macos-arm64-v1.2.3/Goggles-HDMI-macOS-arm64-1.2.3.pkg",
+    "size": 112266512,
+    "sha256": "8fb4fbc3073f4ee4e08305b65bf896704f3f3aef53901557b7abfba21687e5e7",
+    "url": "https://github.com/contentriumkorea/goggles-hdmi/releases/download/macos-arm64-v1.2.4/Goggles-HDMI-macOS-arm64-1.2.4.pkg",
     "notes": "Mac USB 프레이밍 숫자 진단·빌드 식별 추가 · 끊김 원인 재확인용 · HTTPS/분할 수신 수정 포함"
   },
-  "signature": "Xi8APThBhOaSFwlC1q59l8F/MO5BHu9WmM1YhYeouhgA46xZKsf6Ff1VO3mE5VLxsPnihVdPGQgW3st47zv+BQ=="
+  "signature": "AbAKm1UhVlcnMvBhfHEExFpYbD5Q8vzkUD/JoooG9YbQXNhyYdPtefqCMeEhsOw8/bIxHmA73+jjUcPuV601Ag=="
 }

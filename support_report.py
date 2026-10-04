@@ -51,18 +51,24 @@ OPERATIONS = {'usb_read','usb_write','rndis_parse','network_receive','rndis_keep
               'video_receive','decode_create','decode_parse','decode_frame','decode_recovery'}
 DISPLAY_REASONS={'ok','screen_unmatched','screen_ambiguous','mode_unavailable','native_query_failed'}
 OUTPUT_EVENTS={'show','hide','activate','deactivate','window_state','repair_skipped','fullscreen_repair',
-               'topology','window_screen','manual_restore','open','release','screen_added','screen_removed','escape'}
+               'topology','window_screen','manual_restore','open','release','screen_added','screen_removed','escape',
+               'target_restored','restore_wait'}
+RESTORE_REASONS={'not_requested','matched_uuid','matched_id','target_missing','identity_unknown',
+                 'identity_ambiguous','mode_unavailable','cancelled','app_inactive'}
 
 
 def safe_output(value):
     if not isinstance(value,dict):return {}
     result={key:number for key in ('width','height','refresh_hz','dpr','screen_count','window_state','fullscreen_repairs')
             if type(number:=value.get(key)) in (int,float) and math.isfinite(number) and 0<=number<=100000}
-    for key in ('locked','visible','fullscreen','minimized','pending','native_fullscreen','native_fullscreen_style','native_visible','native_minimized'):
+    for key in ('locked','visible','fullscreen','minimized','pending','requested','native_fullscreen','native_fullscreen_style','native_visible','native_minimized'):
         if type(value.get(key)) is bool:result[key]=value[key]
     for key in ('index','requested_screen','actual_screen'):
         if type(number:=value.get(key)) is int and -1<=number<=31:result[key]=number
     if isinstance(value.get('mode_reason'),str) and value['mode_reason'] in DISPLAY_REASONS:result['mode_reason']=value['mode_reason']
+    if isinstance(value.get('restore_reason'),str) and value['restore_reason'] in RESTORE_REASONS:result['restore_reason']=value['restore_reason']
+    for key,limit in (('elapsed_ms',2**31-1),('restore_attempts',5)):
+        if type(number:=value.get(key)) is int and 0<=number<=limit:result[key]=number
     if isinstance(value.get('release_reason'),str) and value['release_reason'] in ('not_started','user_release','screen_removed'):
         result['release_reason']=value['release_reason']
     geometry=value.get('geometry')

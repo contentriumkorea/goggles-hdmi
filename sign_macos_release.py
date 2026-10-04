@@ -28,7 +28,7 @@ def sign_release(package, key, configuration, output):
         'channel':'macos-preview','installer_kind':'pkg','installer_name':'setup.pkg',
         'size':package.stat().st_size,'sha256':digest,
         'url':f'https://github.com/{configuration["github_repository"]}/releases/download/macos-arm64-v{version}/{name}',
-        'notes':'Mac 화면 픽셀 조회·전체화면 상태 복원 수정 · USB 경계 복구/HTTPS 수정 유지'}
+        'notes':'Mac 화면 재구성 뒤 같은 모니터 출력 복원 수정 · USB/HTTPS 수정 유지'}
     envelope = {'release':release,'signature':base64.b64encode(key.sign(canonical_release(release))).decode('ascii')}
     manifest = json.dumps(envelope,indent=2,ensure_ascii=False).encode('utf-8')
     output.mkdir(parents=True,exist_ok=True)

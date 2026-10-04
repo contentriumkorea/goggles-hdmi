@@ -36,9 +36,28 @@ def mac_display_info(screen,*,snapshot=None):
             return {'pixels':None,'reason':'screen_ambiguous' if matches else 'screen_unmatched'}
         entry = matches[0]
         return {'pixels':entry['pixels'],'identifier':entry['identifier'],
+                'uuid':entry.get('uuid'),'builtin':entry.get('builtin'),
                 'reason':'ok' if entry['pixels'] else 'mode_unavailable'}
     except (OSError,AttributeError,ValueError,TypeError,RuntimeError):
         return {'pixels':None,'reason':'native_query_failed'}
+
+
+def match_mac_display(identity,candidates):
+    """Only reacquire the unique native identity cached before QScreen loss."""
+    uuid=identity.get('uuid');identifier=identity.get('identifier')
+    if uuid:field,value,reason='uuid',uuid,'matched_uuid'
+    elif type(identifier) is int and 0<identifier<2**32:
+        field,value,reason='identifier',identifier,'matched_id'
+    else:return None,'identity_unknown'
+    matches=[(screen,info) for screen,info in candidates if info.get(field)==value]
+    if not matches:return None,'target_missing'
+    if len(matches)!=1:return None,'identity_ambiguous'
+    screen,info=matches[0]
+    if identity.get('builtin') is not None and info.get('builtin') is not identity['builtin']:
+        return None,'target_missing'
+    pixels=info.get('pixels')
+    if not pixels or min(pixels)<=0:return None,'mode_unavailable'
+    return screen,reason
 
 
 def mac_window_state(window):
@@ -90,6 +109,7 @@ def _mac_display_snapshot():
     for name in ('CGDisplayModeGetPixelWidth','CGDisplayModeGetPixelHeight'):
         fn = getattr(cg,name);fn.argtypes = [ctypes.c_void_p];fn.restype = ctypes.c_size_t
     cg.CGDisplayModeRelease.argtypes = [ctypes.c_void_p]
+    cg.CGDisplayIsBuiltin.argtypes=[ctypes.c_uint32];cg.CGDisplayIsBuiltin.restype=ctypes.c_uint32
     class Point(ctypes.Structure):
         _fields_ = [('x',ctypes.c_double),('y',ctypes.c_double)]
     class Size(ctypes.Structure):
@@ -105,6 +125,27 @@ def _mac_display_snapshot():
     cf.CFStringCreateWithCString.argtypes=[ctypes.c_void_p,ctypes.c_char_p,ctypes.c_uint32]
     cf.CFStringCreateWithCString.restype=ctypes.c_void_p
     cf.CFRelease.argtypes=[ctypes.c_void_p]
+    cf.CFUUIDCreateString.argtypes=[ctypes.c_void_p,ctypes.c_void_p];cf.CFUUIDCreateString.restype=ctypes.c_void_p
+    cf.CFStringGetCString.argtypes=[ctypes.c_void_p,ctypes.c_char_p,ctypes.c_long,ctypes.c_uint32]
+    cf.CFStringGetCString.restype=ctypes.c_bool
+    try:
+        colorsync=ctypes.CDLL('/System/Library/Frameworks/ColorSync.framework/ColorSync')
+        colorsync.CGDisplayCreateUUIDFromDisplayID.argtypes=[ctypes.c_uint32]
+        colorsync.CGDisplayCreateUUIDFromDisplayID.restype=ctypes.c_void_p
+    except (OSError,AttributeError):colorsync=None
+    def display_uuid(identifier):
+        if colorsync is None:return None
+        uuid=colorsync.CGDisplayCreateUUIDFromDisplayID(identifier)
+        if not uuid:return None
+        string=None
+        try:
+            string=cf.CFUUIDCreateString(None,uuid)
+            buffer=ctypes.create_string_buffer(37)
+            if string and cf.CFStringGetCString(string,buffer,len(buffer),0x08000100):
+                return buffer.value.decode('ascii').lower()
+        finally:
+            if string:cf.CFRelease(string)
+            cf.CFRelease(uuid)
     key=cf.CFStringCreateWithCString(None,b'NSScreenNumber',0x08000100)
     if not key:raise OSError('Native display key unavailable')
     entries=[]
@@ -125,7 +166,8 @@ def _mac_display_snapshot():
             from PySide6.QtCore import QRectF
             geometry=QRectF(rect.origin.x,primary_height-rect.origin.y-rect.size.height,
                             rect.size.width,rect.size.height).toRect()
-            entries.append({'identifier':identifier,'pixels':pixels,
+            entries.append({'identifier':identifier,'uuid':display_uuid(identifier),
+                'builtin':bool(cg.CGDisplayIsBuiltin(identifier)),'pixels':pixels,
                 'geometry':(geometry.x(),geometry.y(),geometry.width(),geometry.height())})
         return entries
     finally:

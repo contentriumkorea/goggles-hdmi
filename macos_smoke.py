@@ -76,7 +76,7 @@ def run(app,window,output):
         import os
         if os.environ.get('GITHUB_ACTIONS')=='true':assert support['build']==os.environ['GITHUB_SHA']
         report['build_revision']=support['build']
-        from platform_support import mac_display_info,mac_window_state
+        from platform_support import mac_display_info,mac_window_state,match_mac_display
         from PySide6.QtWidgets import QApplication
         from PySide6.QtTest import QTest
         from PySide6.QtCore import Qt
@@ -84,6 +84,13 @@ def run(app,window,output):
         report['stage']='native_display_modes'
         modes=[mac_display_info(screen) for screen in QApplication.screens()]
         assert modes and all(info['reason']=='ok' and min(info['pixels'])>0 for info in modes)
+        candidates=list(zip(QApplication.screens(),modes))
+        for screen,info in candidates:
+            assert type(info['identifier']) is int and info['identifier']>0 and type(info['builtin']) is bool
+            if info['uuid']:assert re.fullmatch('[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}',info['uuid'])
+            assert match_mac_display(info,candidates)[0] is screen
+        report['native_display_identity']=True
+        report['native_uuid_count']=sum(bool(info['uuid']) for info in modes)
         report['native_display_modes']=True
         def wait_native(predicate):
             until=time.monotonic()+5
@@ -95,6 +102,15 @@ def run(app,window,output):
         window.open_output()
         wait_native(lambda:mac_window_state(window.output).get('native_fullscreen') is True)
         report['fullscreen_enter_state']=mac_window_state(window.output)
+        report['stage']='topology_reacquire'
+        # Simulate the notification with an existing verified native display;
+        # no physical monitor is detached on the build runner.
+        window.screen_removed(window.output.output_screen)
+        wait_native(lambda:window.output.locked and not window.output_pending
+            and mac_window_state(window.output).get('native_fullscreen') is True
+            and mac_window_state(window.output).get('native_visible') is True)
+        assert window.output_restore_reason in ('matched_uuid','matched_id')
+        report['topology_reacquire_simulated']=True
         report['stage']='clipboard_fullscreen'
         window.copy_problem_button.click()
         current=json.loads(app.clipboard().text().split('\n',1)[1])['output']
@@ -150,7 +166,7 @@ def run(app,window,output):
         report.update(ok=True,decoded_frames=len(frames),pipeline=True,gui=True,qt_platform=app.platformName(),libusb=True,clipboard=True,partial_usb_stream=True)
         code = 0
     except Exception as exc:
-        if report.get('stage','').startswith(('fullscreen','clipboard','escape')):
+        if report.get('stage','').startswith(('fullscreen','clipboard','escape','topology')):
             from platform_support import mac_window_state
             report['output_state']={**mac_window_state(window.output),'qt_fullscreen':window.output.isFullScreen(),
                 'qt_visible':window.output.isVisible(),'locked':window.output.locked,

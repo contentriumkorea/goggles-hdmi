@@ -348,6 +348,14 @@ class MainWindow(QMainWindow):
         self.preview_original = False
         self.output_target = None
         self.output_pending = None
+        self.output_requested = False
+        self.output_identity = {}
+        self.output_intent_generation = 0
+        self.output_topology_generation = 0
+        self.output_topology_attempts = 0
+        self.output_restore_reason = 'not_requested'
+        self.output_event_origin = time.monotonic()
+        self.mac_display_candidates = []
         self.rate_samples = deque()
         self.last_rate_update = 0.
         self.last_packet_time = 0.
@@ -427,6 +435,11 @@ class MainWindow(QMainWindow):
         self.display_refresh_timer.setInterval(150)
         self.display_refresh_timer.timeout.connect(self.refresh_screens)
         self.display_retry_count = 0
+        self.output_topology_timer = QTimer(self)
+        self.output_topology_timer.setSingleShot(True)
+        self.output_topology_timer.setInterval(300)
+        self.output_topology_timer.timeout.connect(self.restore_output)
+        QApplication.instance().applicationStateChanged.connect(self.resume_output_restore)
         self.refresh_screens()
         QApplication.instance().screenAdded.connect(self.screen_added)
         QApplication.instance().screenRemoved.connect(self.screen_removed)
@@ -595,6 +608,7 @@ class MainWindow(QMainWindow):
         if hasattr(self,'display_refresh_timer'):
             self.display_retry_count=0
             self.display_refresh_timer.start()
+            if sys.platform=='darwin' and self.output_pending:self.schedule_output_restore(reset=True)
 
     def schedule_control_placement(self, *_):
         if hasattr(self,'placement_timer'): self.placement_timer.start(0)
@@ -752,11 +766,13 @@ class MainWindow(QMainWindow):
             old = self.settings.value('screenName', '')
         self.screens.clear()
         self.display_modes=[]
+        self.mac_display_candidates=[]
         for i, screen in enumerate(QApplication.screens()):
             reason='ok'
             if sys.platform=='darwin':
                 from platform_support import mac_display_info
                 info=mac_display_info(screen);width,height=info['pixels'] or (0,0);reason=info['reason']
+                self.mac_display_candidates.append((screen,info))
             else:width,height=screen_pixel_size(screen)
             self.display_modes.append((screen,{'width':width,'height':height,'mode_reason':reason}))
             name = screen.model().strip() or f'화면 {i+1}'
@@ -775,20 +791,25 @@ class MainWindow(QMainWindow):
                 self.display_retry_count+=1
                 self.display_refresh_timer.start(250)
         else:self.display_retry_count=0
+        if sys.platform=='darwin' and self.output_pending:self.schedule_output_restore()
 
     def screen_removed(self, removed):
         selected = self.output.output_screen is removed if sys.platform=='darwin' else self.output_target == removed.name()
         if selected and self.output.locked:
-            self.output_pending = self.output_target
-            self.output.release()
+            self.output_pending = (self.output_target or 'mac-display') if sys.platform=='darwin' else self.output_target
             self.output_release_reason='screen_removed'
+            self.output.release()
             self.observe_output('screen_removed')
             self.log('출력 화면 분리 · 같은 화면이 다시 연결될 때까지 출력 대기')
         self.refresh_screens()
+        if sys.platform=='darwin' and self.output_pending:self.schedule_output_restore(reset=True)
 
     def screen_added(self, screen):
         self.refresh_screens()
         self.observe_output('screen_added')
+        if sys.platform=='darwin':
+            if self.output_pending:self.schedule_output_restore(reset=True)
+            return
         same=[s for s in QApplication.screens() if s.name()==self.output_pending]
         if self.output_pending == screen.name() and (sys.platform!='darwin' or len(same)==1):
             index = self.screens.findData(screen.name())
@@ -796,17 +817,61 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(300, self.restore_output)
 
     def restore_output(self):
+        if sys.platform=='darwin':
+            self.output_topology_timer.stop()
+            if (not self.output_requested or not self.output_pending
+                    or self.output_topology_generation!=self.output_intent_generation
+                    or self.output_topology_attempts>=5):return
+            if QApplication.applicationState()!=Qt.ApplicationActive:
+                self.output_restore_reason='app_inactive'
+                self.observe_output('restore_wait')
+                return
+            self.output_topology_attempts+=1
+            self.refresh_screens()
+            from platform_support import match_mac_display
+            screen,reason=match_mac_display(self.output_identity,self.mac_display_candidates)
+            self.output_restore_reason=reason
+            if screen is not None:
+                self.output_topology_timer.stop()
+                self.screens.setCurrentIndex(QApplication.screens().index(screen))
+                self.open_output(restore=True)
+                self.observe_output('target_restored')
+            else:
+                self.observe_output('restore_wait')
+                self.schedule_output_restore()
+            return
         same=[s for s in QApplication.screens() if s.name()==self.output_pending]
         if (self.output_pending and self.screens.findData(self.output_pending) >= 0
                 and (sys.platform!='darwin' or len(same)==1)):
             self.screens.setCurrentIndex(self.screens.findData(self.output_pending))
             self.open_output()
 
-    def open_output(self):
+    def schedule_output_restore(self,*,reset=False):
+        if not self.output_requested or not self.output_pending:return
+        if reset:
+            self.output_topology_timer.stop()
+            self.output_topology_generation=self.output_intent_generation
+            self.output_topology_attempts=0
+        if self.output_topology_attempts<5 and not self.output_topology_timer.isActive():
+            self.output_topology_timer.start()
+
+    def resume_output_restore(self,state):
+        if sys.platform=='darwin' and state==Qt.ApplicationActive:
+            self.schedule_output_restore(reset=True)
+
+    def open_output(self,*,restore=False):
         screens = QApplication.screens()
         index = self.screens.currentIndex()
         if not 0 <= index < len(screens):
             return
+        if not restore:
+            self.output_intent_generation+=1
+            self.output_topology_timer.stop()
+            self.output_restore_reason='not_requested'
+            if sys.platform=='darwin':
+                from platform_support import mac_display_info
+                info=mac_display_info(screens[index])
+                self.output_identity={key:info.get(key) for key in ('uuid','identifier','builtin')}
         if not self.output.lock_output():
             self.record_component_issue('output','GH-OUTPUT','output')
             self.log('Ctrl+D가 다른 프로그램에 등록되어 전체화면을 열지 못했습니다. 단축키 충돌을 해제하세요.')
@@ -814,6 +879,7 @@ class MainWindow(QMainWindow):
         if not self.output.keep_awake(True):
             self.log('화면 꺼짐 방지 요청 실패. 전원 설정을 확인하세요.')
         self.output_target = screens[index].name()
+        self.output_requested = True
         width,height = screen_pixel_size(screens[index])
         self.support_output = {'width':width,'height':height,'refresh_hz':screens[index].refreshRate()}
         self.component_issues.pop('output',None)
@@ -828,7 +894,7 @@ class MainWindow(QMainWindow):
             self.output.windowHandle().screenChanged.connect(lambda *_:self.observe_output('window_screen'))
             self.output.setProperty('screen_signal_connected',True)
         self.output.enforce_topmost()
-        self.output.activateWindow()
+        if not restore:self.output.activateWindow()
         if self.settings:
             self.settings.setValue('screenName',screens[index].name())
             self.settings.setValue('autoFullscreen',self.auto_fullscreen.isChecked())
@@ -838,6 +904,10 @@ class MainWindow(QMainWindow):
         self.observe_output('open')
 
     def release_output(self):
+        self.output_requested=False
+        self.output_intent_generation+=1
+        self.output_topology_timer.stop()
+        self.output_restore_reason='cancelled'
         self.output_release_reason='user_release'
         self.output_pending = None
         self.usb_auto_output_pending = False
@@ -855,6 +925,7 @@ class MainWindow(QMainWindow):
         actual=handle.screen() if handle else None
         geometry=self.output.geometry()
         self.support_output.update(mode,locked=self.output.locked,visible=self.output.isVisible(),
+            requested=self.output_requested,restore_reason=self.output_restore_reason,restore_attempts=self.output_topology_attempts,
             fullscreen=self.output.isFullScreen(),minimized=self.output.isMinimized(),pending=bool(self.output_pending),
             requested_screen=index,screen_count=len(screens),window_state=self.output.windowState().value,
             actual_screen=screens.index(actual) if actual in screens else -1,
@@ -866,7 +937,8 @@ class MainWindow(QMainWindow):
             from platform_support import mac_window_state
             self.support_output.update(mac_window_state(self.output))
         if event is not None:
-            self.output_events.append({'event':event,**{key:self.support_output[key] for key in
+            self.output_events.append({'event':event,'elapsed_ms':round((time.monotonic()-self.output_event_origin)*1000),
+                'restore_reason':self.output_restore_reason,'requested':self.output_requested,**{key:self.support_output[key] for key in
                 ('locked','visible','fullscreen','window_state','release_reason','requested_screen','actual_screen')},
                 **{key:self.support_output[key] for key in ('native_visible','native_fullscreen') if key in self.support_output}})
         self.support_output['events']=list(self.output_events)

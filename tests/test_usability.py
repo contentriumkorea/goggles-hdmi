@@ -68,6 +68,8 @@ def test_preview_comparison_and_zebra_do_not_change_output(monkeypatch):
         finish(w)
 
 def test_removed_output_waits_without_choosing_laptop(monkeypatch):
+    import app
+    monkeypatch.setattr(app.sys,'platform','win32')  # Legacy Windows name-based reconnect contract.
     w = MainWindow(False)
     class Screen:
         def name(self): return 'external-test'

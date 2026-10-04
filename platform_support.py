@@ -24,6 +24,9 @@ def mac_display_pixels(screen):
 
 def mac_display_info(screen,*,snapshot=None):
     """Match the same NSScreen points/flip Qt uses, then query its CG mode."""
+    if snapshot is None:
+        from PySide6.QtWidgets import QApplication
+        if QApplication.platformName()!='cocoa':return {'pixels':None,'reason':'native_query_failed'}
     try:
         entries = _mac_display_snapshot() if snapshot is None else snapshot
         geometry = screen.geometry()
@@ -34,7 +37,7 @@ def mac_display_info(screen,*,snapshot=None):
         entry = matches[0]
         return {'pixels':entry['pixels'],'identifier':entry['identifier'],
                 'reason':'ok' if entry['pixels'] else 'mode_unavailable'}
-    except (OSError,AttributeError,ValueError,TypeError):
+    except (OSError,AttributeError,ValueError,TypeError,RuntimeError):
         return {'pixels':None,'reason':'native_query_failed'}
 
 
@@ -55,7 +58,7 @@ def mac_window_state(window):
         return {'native_fullscreen':bool(integer(native,objc.sel_registerName(b'styleMask')) & (1<<14)),
                 'native_visible':bool(boolean(native,objc.sel_registerName(b'isVisible'))),
                 'native_minimized':bool(boolean(native,objc.sel_registerName(b'isMiniaturized')))}
-    except (OSError,ValueError,TypeError,AttributeError):return {}
+    except (OSError,ValueError,TypeError,AttributeError,RuntimeError):return {}
 
 
 def _mac_display_snapshot():

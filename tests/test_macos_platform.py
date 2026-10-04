@@ -181,10 +181,18 @@ def test_mac_lost_fullscreen_summary_does_not_claim_output_is_running(monkeypatc
 
 def test_native_window_query_never_passes_offscreen_winid_to_objc(monkeypatch):
     import ctypes
-    from platform_support import mac_window_state
+    from platform_support import mac_window_state,mac_display_info
     from PySide6.QtWidgets import QApplication
     monkeypatch.setattr(QApplication,'platformName',staticmethod(lambda:'offscreen'))
     monkeypatch.setattr(ctypes,'CDLL',lambda *_:(_ for _ in ()).throw(AssertionError('non-Cocoa IDs are not NSView pointers')))
     class Window:
         def winId(self):return 1
     assert mac_window_state(Window())=={}
+    assert mac_display_info(Window())=={'pixels':None,'reason':'native_query_failed'}
+
+
+def test_removed_screen_query_returns_unknown_instead_of_using_deleted_object():
+    from platform_support import mac_display_info
+    class Screen:
+        def geometry(self):raise RuntimeError('Internal C++ object already deleted')
+    assert mac_display_info(Screen(),snapshot=[])=={'pixels':None,'reason':'native_query_failed'}

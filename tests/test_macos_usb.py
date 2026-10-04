@@ -125,3 +125,19 @@ def test_valid_small_device_transmit_limit_does_not_reduce_host_receive_buffer()
         return result
     d.ctrl_transfer=transfer
     assert RNDISControl(d,2).initialize()[0]==1580
+
+
+def test_partial_bulk_reads_do_not_restart_arp_or_discard_complete_datagrams():
+    from macos_usb import USBConnection
+    from usb_network import NetworkPeer,rndis_packet
+    d=Device();util=Util();stats={}
+    peer=NetworkPeer('192.168.60.2','192.168.60.1',9003,12346,b'\x02bbbbb')
+    arp=rndis_packet(peer.arp_request());d.reads.extend([arp[:31],arp[31:]])
+    with USBConnection(device=d,util=util,stats=stats) as connection:
+        peer.remote_mac=connection.peer.mac
+        one,two=aligned_message(peer.datagram(b'first')),rndis_packet(peer.datagram(b'second'))
+        d.reads.extend([one+two[:17],two[17:]])
+        assert connection.recv(65535)==b'first'
+        assert connection.recv(65535)==b'second'
+        assert stats['rndis_partial_reads']==2 and stats['rndis_messages']==3
+        assert stats['rndis_buffered_bytes']==0

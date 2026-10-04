@@ -2,7 +2,7 @@ name: Publish verified Apple Silicon update
 on:
   push:
     branches: [main]
-    paths: ['channels/macos-arm64.json', '.github/workflows/macos-signed-update.yml']
+    paths: ['channels/macos-arm64.json']
 permissions:
   contents: write
 jobs:
@@ -34,8 +34,8 @@ jobs:
           expected = dict(product=configuration['product'],version=configuration['version'],platform='darwin',
               architecture='arm64',channel='macos-preview',installer_kind='pkg',installer_name='setup.pkg')
           assert all(release.get(key) == value for key,value in expected.items())
-          version = release['version']; tag = f'macos-arm64-v{version}-preview'
-          name = f'Goggles-HDMI-macOS-arm64-{version}-preview.pkg'
+          version = release['version']; tag = f'macos-arm64-v{version}'
+          name = f'Goggles-HDMI-macOS-arm64-{version}.pkg'
           assert release['url'] == f'https://github.com/{configuration["github_repository"]}/releases/download/{tag}/{name}'
           metadata = json.loads(subprocess.check_output(['gh','release','view',tag,'--json','isPrerelease,isDraft'],text=True))
           assert metadata['isPrerelease'] and not metadata['isDraft']
@@ -47,7 +47,7 @@ jobs:
               assert hashlib.file_digest(stream,'sha256').hexdigest() == release['sha256']
           assert package.stat().st_size == release['size'] and 0 < release['size'] <= 1024**3
           (output/'release-macos-arm64.json').write_bytes(manifest)
-          bundle = output/f'Goggles-HDMI-macOS-arm64-{version}-preview.ghupdate'
+          bundle = output/f'Goggles-HDMI-macOS-arm64-{version}.ghupdate'
           with zipfile.ZipFile(bundle,'w',compression=zipfile.ZIP_STORED) as archive:
               archive.writestr(zipfile.ZipInfo('release.json',(1980,1,1,0,0,0)),manifest)
               with archive.open(zipfile.ZipInfo('setup.pkg',(1980,1,1,0,0,0)),'w') as target, package.open('rb') as source:

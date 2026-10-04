@@ -16,6 +16,7 @@ MESSAGES = {
     'GH-USB-DISCONNECTED':'USB 장치 연결이 끊겼습니다. 다시 연결하세요.',
     'GH-USB-CONFIG':'고글 USB 주소 설정이 필요합니다. USB 최초 설정을 실행하세요.',
     'GH-RNDIS-INIT':'고글 RNDIS 초기화 응답을 확인하지 못했습니다. USB를 다시 연결하세요.',
+    'GH-RNDIS-FRAMING':'USB 패킷의 길이 또는 구조가 올바르지 않습니다. 문제 정보를 복사하세요.',
     'GH-ARP-TIMEOUT':'고글의 USB 네트워크 응답이 없습니다. OTG 유선 컴퓨터 연결을 확인하세요.',
     'GH-TRANSPORT-IO':'USB 영상 통신 실패 · 다시 연결 중입니다.',
     'GH-VIDEO-TIMEOUT':'영상 패킷 대기 시간이 초과되었습니다. 라이브뷰 공유와 기체 영상을 확인하세요.',
@@ -27,7 +28,16 @@ MESSAGES = {
     'GH-UNKNOWN':'연결 작업에 실패했습니다. 문제 정보를 복사하세요.'}
 STAGES = {'idle','discovery','network_config','socket_bind','claim','rndis_init','arp','session','video','decode','output','update'}
 COUNTERS = ('sessions','retries','invalid_packets','video_bytes','ordered_bytes','parsed_frames','frames',
-            'warmup_frames','intra_refresh_frames','decode_errors','width','height')
+            'warmup_frames','intra_refresh_frames','decode_errors','width','height','session_attempts',
+            'usb_read_calls','usb_read_bytes','last_usb_read_bytes','rndis_messages','rndis_partial_reads',
+            'rndis_buffered_bytes','rndis_expected_bytes','rndis_max_buffered_bytes','rndis_framing_errors',
+            'rndis_control_ms','rndis_max_control_ms','max_ack_gap_ms')
+EXCEPTION_CLASSES = {'OSError','ValueError','ConnectionError','TimeoutError','USBError','USBTimeoutError',
+                     'InvalidDataError','FFmpegError','RNDISFramingError','SupportError','OtherError'}
+REASONS = {'partial_timeout','buffer_limit','message_type','length_limit','data_bounds','metadata'}
+OPERATIONS = {'usb_read','usb_write','rndis_parse','network_receive','rndis_keepalive','rndis_initialize',
+              'rndis_query_mac','rndis_query_mtu','rndis_set_filter','arp_send','session_send','ack_send',
+              'video_receive','decode_create','decode_parse','decode_frame','decode_recovery'}
 
 
 def utc_now():
@@ -35,18 +45,27 @@ def utc_now():
 
 
 class SupportError(OSError):
-    def __init__(self, code, stage, original=None):
+    def __init__(self, code, stage, original=None, *, operation=None):
         self.code = code if code in MESSAGES else 'GH-UNKNOWN'
         self.stage = stage if stage in STAGES else 'discovery'
         self.os_error = next((value for value in (getattr(original,'winerror',None),getattr(original,'errno',None),
             getattr(original,'backend_error_code',None)) if type(value) is int and -65535 <= value <= 65535),None)
+        name = getattr(original,'exception_class',None) or (type(original).__name__ if original is not None else None)
+        self.exception_class = name if name in EXCEPTION_CLASSES else ('OtherError' if name else None)
+        self.reason = getattr(original,'reason',None) if getattr(original,'reason',None) in REASONS else None
+        self.operation = operation if operation in OPERATIONS else None
+        self.context = {key:value for key in ('buffered_bytes','expected_bytes')
+                        if type(value := getattr(original,key,None)) is int and 0 <= value <= 2*1024*1024}
         super().__init__(MESSAGES[self.code])
 
 
-def issue_from_exception(exc, stage):
+def issue_from_exception(exc, stage, *, operation=None):
     if isinstance(exc,SupportError):
+        if exc.operation is None and operation in OPERATIONS:exc.operation = operation
         return exc
-    if getattr(exc,'winerror',None) == 10048 or getattr(exc,'errno',None) in (16,48,98) or getattr(exc,'backend_error_code',None) == -6:
+    if type(exc).__name__ == 'RNDISFramingError':
+        code = 'GH-RNDIS-FRAMING'
+    elif getattr(exc,'winerror',None) == 10048 or getattr(exc,'errno',None) in (16,48,98) or getattr(exc,'backend_error_code',None) == -6:
         code = 'GH-USB-BUSY'
     elif getattr(exc,'errno',None) in (1,13) or getattr(exc,'backend_error_code',None) == -3:
         code = 'GH-USB-ACCESS'
@@ -60,19 +79,30 @@ def issue_from_exception(exc, stage):
         code = 'GH-TRANSPORT-IO'
     else:
         code = 'GH-UNKNOWN'
-    return SupportError(code,stage,exc)
+    return SupportError(code,stage,exc,operation=operation)
 
 
 def issue_record(code,stage,exc=None):
     issue = exc if isinstance(exc,SupportError) else SupportError(code,stage,exc)
-    return {'time_utc':utc_now(),'code':issue.code,'stage':issue.stage,'message':MESSAGES[issue.code],
-            'os_error':issue.os_error}
+    result = {'time_utc':utc_now(),'code':issue.code,'stage':issue.stage,'message':MESSAGES[issue.code],
+              'os_error':issue.os_error,'repeat_count':1}
+    for key in ('exception_class','reason','operation','context'):
+        value = getattr(issue,key,None)
+        if value:result[key] = value
+    return result
 
 
 def record_issue(stats, code, stage, exc=None, *, active=True):
     issue = issue_record(code,stage,exc)
     history = stats.setdefault('issue_history',[])
-    history.append(issue)
+    attempt = stats.get('session_attempts')
+    if type(attempt) is int and 0 <= attempt <= 2**63:issue['session_attempt'] = attempt
+    if history and all(history[-1].get(key) == issue.get(key) for key in
+            ('time_utc','code','stage','os_error','exception_class','reason','operation','session_attempt','context')):
+        history[-1]['repeat_count'] = min(1000000,history[-1].get('repeat_count',1)+1)
+        issue = history[-1]
+    else:
+        history.append(issue)
     if isinstance(history,list):
         del history[:-10]
     if active:
@@ -102,6 +132,15 @@ def safe_issue(value):
     error = value.get('os_error')
     if type(error) is int and -65535 <= error <= 65535:
         result['os_error'] = error
+    for key,allowed in (('exception_class',EXCEPTION_CLASSES),('reason',REASONS),('operation',OPERATIONS)):
+        if value.get(key) in allowed:result[key] = value[key]
+    for key in ('repeat_count','session_attempt'):
+        number = value.get(key)
+        if type(number) is int and 0 <= number <= 2**63:result[key] = number
+    context = value.get('context')
+    if isinstance(context,dict):
+        result['context'] = {key:number for key in ('buffered_bytes','expected_bytes')
+                            if type(number := context.get(key)) is int and 0 <= number <= 2*1024*1024}
     return result
 
 

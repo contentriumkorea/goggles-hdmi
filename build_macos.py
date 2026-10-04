@@ -63,7 +63,7 @@ def main():
         entry['BundleIsRelocatable'] = False
         entry['BundleOverwriteAction'] = 'upgrade'
     component.write_bytes(plistlib.dumps(components))
-    package = release/f'Goggles-HDMI-macOS-arm64-{configuration["version"]}-preview.pkg'
+    package = release/f'Goggles-HDMI-macOS-arm64-{configuration["version"]}.pkg'
     # Use isolated payload so PyInstaller's sibling COLLECT directory isn't installed.
     run('/usr/bin/pkgbuild','--root',str(payload),'--component-plist',str(component),
         '--identifier','com.contentrium.GogglesHDMI','--version',configuration['version'],

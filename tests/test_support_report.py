@@ -49,7 +49,9 @@ def test_error_code_survives_usb_wrapping_and_stopping_is_normal():
 def test_history_is_bounded_and_component_issues_do_not_replace_usb():
     from support_report import build_report,record_issue
     stats={}
-    for _ in range(20):record_issue(stats,'GH-USB-ACCESS','claim',OSError(13,'/private/secret'))
+    for i in range(20):
+        stats['session_attempts']=i
+        record_issue(stats,'GH-USB-ACCESS','claim',OSError(13,'/private/secret'))
     text=build_report(version='1.2.0',stats=stats,components={'update':{'code':'GH-UPDATE-VERIFY','stage':'update','message':'secret'}})
     data=json.loads(text.split('\n',1)[1])
     assert len(data['recent_issues'])==10 and data['active_issue']['code']=='GH-USB-ACCESS'
@@ -68,3 +70,26 @@ def test_stop_clears_active_fault_and_retains_recent_failure():
         assert data['source_mode']=='idle' and data['active_issue'] is None
         assert data['recent_issues'][-1]['code']=='GH-USB-ACCESS'
     finally:window.close()
+
+
+def test_framing_unknown_diagnostics_are_safe_and_repeated_startup_errors_are_bounded(monkeypatch):
+    import support_report
+    from support_report import build_report,issue_from_exception,record_issue
+    from usb_network import RNDISFramingError
+    monkeypatch.setattr(support_report,'utc_now',lambda:'2026-10-04T00:38:36+00:00')
+    stats={'session_attempts':7,'usb_read_bytes':512,'rndis_partial_reads':3}
+    error=RNDISFramingError('data_bounds',buffered_bytes=512,expected_bytes=1558)
+    issue=issue_from_exception(error,'arp',operation='rndis_parse')
+    record_issue(stats,issue.code,issue.stage,issue)
+    for _ in range(6):record_issue(stats,'GH-DECODE','decode',ValueError('/Users/alice/private-password'),active=False)
+    report=json.loads(build_report(version='1.2.1',stats=stats).split('\n',1)[1])
+    framing=report['recent_issues'][0]
+    assert framing['code']=='GH-RNDIS-FRAMING' and framing['reason']=='data_bounds'
+    assert framing['exception_class']=='RNDISFramingError' and framing['operation']=='rndis_parse'
+    assert framing['context']=={'buffered_bytes':512,'expected_bytes':1558}
+    assert report['recent_issues'][-1]['repeat_count']==6 and len(report['recent_issues'])==2
+    assert report['counters']['rndis_partial_reads']==3 and 'private-password' not in json.dumps(report)
+    unsafe=type('SecretPasswordException',(ValueError,),{})('https://user:secret@example.com')
+    record_issue(stats,'GH-UNKNOWN','video',unsafe)
+    last=json.loads(build_report(version='1.2.1',stats=stats).split('\n',1)[1])['recent_issues'][-1]
+    assert last['exception_class']=='OtherError' and 'secret' not in json.dumps(last).lower()

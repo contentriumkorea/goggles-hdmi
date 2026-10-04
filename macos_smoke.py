@@ -13,7 +13,7 @@ def run(app,window,output):
     from effects import Processor,Settings
     from licensing import LicenseState,password_proof
     from macos_usb import usb_backend,find_device
-    from usb_network import NetworkPeer,rndis_packet,rndis_frames
+    from usb_network import NetworkPeer,rndis_packet,rndis_frames,RNDISStream
     report = {'architecture':platform.machine(),'platform':sys.platform,'hardware_verified':False}
     try:
         if sys.platform != 'darwin' or platform.machine() != 'arm64':
@@ -49,6 +49,9 @@ def run(app,window,output):
         b = NetworkPeer('192.168.60.2','192.168.60.1',9003,12346,b'\x02bbbbb')
         _,reply = b.receive(a.arp_request());a.receive(reply)
         assert a.receive(rndis_frames(rndis_packet(b.datagram(b'video')))[0])[0] == b'video'
+        message=rndis_packet(b.datagram(b'\0'*1500));stream=RNDISStream()
+        assert stream.feed(message[:31])==[]
+        assert a.receive(stream.feed(message[31:])[0])[0]==b'\0'*1500
         assert app.platformName() == 'cocoa'
         assert window.copy_problem_button.isEnabled()
         window.copy_problem_button.click()
@@ -56,7 +59,7 @@ def run(app,window,output):
         assert copied.startswith('Goggles HDMI support report\n')
         support = json.loads(copied.split('\n',1)[1])
         assert support['source_mode'] == 'idle'
-        report.update(ok=True,decoded_frames=len(frames),pipeline=True,gui=True,qt_platform=app.platformName(),libusb=True,clipboard=True)
+        report.update(ok=True,decoded_frames=len(frames),pipeline=True,gui=True,qt_platform=app.platformName(),libusb=True,clipboard=True,partial_usb_stream=True)
         code = 0
     except Exception as exc:
         report.update(ok=False,error=type(exc).__name__+': '+str(exc));code = 1

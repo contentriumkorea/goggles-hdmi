@@ -60,10 +60,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(python -c "import json; print(json.load(open('release_config_macos.json'))['version'])")
-          TAG=macos-arm64-v${VERSION}-preview
+          TAG=macos-arm64-v${VERSION}
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo 'This version is already published. Increment the macOS version before publishing new binaries.'
             exit 1
           else
-            gh release create "$TAG" macos-release/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Goggles HDMI ${VERSION} — Apple Silicon preview" --notes-file docs/macos-release-notes.md
+            gh release create "$TAG" macos-release/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Goggles HDMI ${VERSION} — Apple Silicon" --notes-file docs/macos-release-notes.md
           fi

@@ -10,7 +10,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from usb_network import NetworkPeer, rndis_packet, rndis_frames
+from usb_network import NetworkPeer, rndis_packet, RNDISStream, RNDISFramingError
 from support_report import SupportError,issue_from_exception,record_success
 
 VID, PID = 0x2ca3, 0x0020
@@ -92,17 +92,27 @@ def is_timeout(exc):
     return isinstance(exc,(TimeoutError,socket.timeout)) or getattr(exc,'errno',None) in (60,110) or getattr(exc,'backend_error_code',None) == -7
 
 
-def usb_error(exc, stage='discovery'):
-    return issue_from_exception(exc,stage)
+def usb_error(exc, stage='discovery',operation=None):
+    return issue_from_exception(exc,stage,operation=operation)
 
 
 class RNDISControl:
-    def __init__(self, device, interface, stop=None):
+    def __init__(self, device, interface, stop=None,stats=None):
         self.device,self.interface,self.stop = device,interface,stop
         self.request_id = 0
         self.initialized = False
+        self.stats = stats if stats is not None else {}
 
     def command(self, kind, body=b'', *, reply=True):
+        started = time.perf_counter()
+        try:
+            return self._command(kind,body,reply=reply)
+        finally:
+            elapsed = (time.perf_counter()-started)*1000
+            self.stats['rndis_control_ms'] = round(elapsed,3)
+            self.stats['rndis_max_control_ms'] = max(self.stats.get('rndis_max_control_ms',0),round(elapsed,3))
+
+    def _command(self, kind, body=b'', *, reply=True):
         self.request_id = (self.request_id+1) & 0xffffffff
         request_id = self.request_id
         message = struct.pack('<3I',kind,12+len(body),request_id)+body
@@ -151,6 +161,7 @@ class RNDISControl:
         return response[start:start+size]
 
     def initialize(self):
+        self.stats['operation'] = 'rndis_initialize'
         result = self.command(2,struct.pack('<3I',1,0,MAX_TRANSFER))
         if len(result) != 52:
             raise OSError('Invalid RNDIS initialize completion')
@@ -158,17 +169,21 @@ class RNDISControl:
         if major != 1 or minor != 0 or medium != 0 or flags != 1 or not 1 <= packets <= 65535 or not 44+14 <= transfer <= MAX_TRANSFER or alignment > 7 or af_offset or af_size:
             raise OSError('Unsupported RNDIS transfer configuration')
         self.initialized = True
+        self.stats['operation'] = 'rndis_query_mac'
         mac = self.query(0x01010102)  # OID_802_3_CURRENT_ADDRESS
+        self.stats['operation'] = 'rndis_query_mtu'
         mtu_data = self.query(0x00010106)  # OID_GEN_MAXIMUM_FRAME_SIZE
         if len(mac) != 6 or mac[0] & 1 or not any(mac) or len(mtu_data) != 4:
             raise OSError('Invalid RNDIS adapter identity')
         mtu = struct.unpack('<I',mtu_data)[0]
         if not 576 <= mtu <= 65515 or transfer < 44+14+mtu:
             raise OSError('Invalid RNDIS MTU')
+        self.stats['operation'] = 'rndis_set_filter'
         self.command(5,struct.pack('<4I',0x0001010e,4,20,0)+struct.pack('<I',9))
         return transfer,mac,mtu
 
     def keepalive(self):
+        self.stats['operation'] = 'rndis_keepalive'
         self.command(8)
 
     def halt(self):
@@ -185,6 +200,7 @@ class USBConnection:
         self.pending = deque()
         self.last_keepalive = 0
         self.stats = stats if stats is not None else {}
+        self.framing = RNDISStream(max_message=MAX_TRANSFER)
 
     def __enter__(self):
         try:
@@ -204,7 +220,7 @@ class USBConnection:
                 self.claimed.append(number)
                 if interface.bAlternateSetting or sum(i.bInterfaceNumber == number for i in config) > 1:
                     self.device.set_interface_altsetting(interface=number,alternate_setting=interface.bAlternateSetting)
-            self.control = RNDISControl(self.device,self.layout.control.bInterfaceNumber,self.stop)
+            self.control = RNDISControl(self.device,self.layout.control.bInterfaceNumber,self.stop,self.stats)
             self.stats['stage'] = 'rndis_init'
             self.transfer,self.mac,self.mtu = self.control.initialize()
             record_success(self.stats,'rndis_init',recovered=False)
@@ -227,7 +243,7 @@ class USBConnection:
         except Exception as exc:
             self.close()
             if isinstance(exc,OSError):
-                raise usb_error(exc,self.stats.get('stage','discovery')) from exc
+                raise usb_error(exc,self.stats.get('stage','discovery'),self.stats.get('operation')) from exc
             raise
 
     def _cancelled(self):
@@ -235,24 +251,43 @@ class USBConnection:
             raise OSError('USB connection cancelled')
 
     def _write(self, frame):
+        self.stats['operation'] = 'usb_write'
         payload = rndis_packet(frame)
         if len(payload) > self.transfer:
             raise OSError('RNDIS outgoing transfer too large')
         try:
             written = self.device.write(self.layout.bulk_out,payload,timeout=100)
         except OSError as exc:
-            raise usb_error(exc,self.stats.get('stage','video')) from exc
+            raise usb_error(exc,self.stats.get('stage','video'),self.stats.get('operation')) from exc
         if written != len(payload):
             raise OSError('Short RNDIS bulk write')
 
     def _read(self):
+        self.stats['operation'] = 'usb_read'
+        self.stats['usb_read_calls'] = self.stats.get('usb_read_calls',0)+1
         try:
             data = self.device.read(self.layout.bulk_in,MAX_TRANSFER,timeout=10)
         except OSError as exc:
             if is_timeout(exc):
-                return
-            raise usb_error(exc,self.stats.get('stage','video')) from exc
-        for frame in rndis_frames(data):
+                data = b''
+            else:
+                raise usb_error(exc,self.stats.get('stage','video'),self.stats.get('operation')) from exc
+        self.stats['last_usb_read_bytes'] = len(data)
+        self.stats['usb_read_bytes'] = self.stats.get('usb_read_bytes',0)+len(data)
+        try:
+            self.stats['operation'] = 'rndis_parse'
+            frames = self.framing.feed(data)
+        except RNDISFramingError as exc:
+            self.stats['rndis_framing_errors'] = self.stats.get('rndis_framing_errors',0)+1
+            raise SupportError('GH-RNDIS-FRAMING',self.stats.get('stage','video'),exc,operation='rndis_parse') from exc
+        self.stats['rndis_buffered_bytes'] = self.framing.buffered_bytes
+        self.stats['rndis_expected_bytes'] = self.framing.expected_bytes
+        self.stats['rndis_max_buffered_bytes'] = max(self.stats.get('rndis_max_buffered_bytes',0),self.framing.buffered_bytes)
+        if data and self.framing.buffered_bytes:
+            self.stats['rndis_partial_reads'] = self.stats.get('rndis_partial_reads',0)+1
+        self.stats['rndis_messages'] = self.stats.get('rndis_messages',0)+len(frames)
+        for frame in frames:
+            self.stats['operation'] = 'network_receive'
             payload,reply = self.peer.receive(frame)
             if reply:
                 self._write(reply)
@@ -279,6 +314,9 @@ class USBConnection:
         return self.pending.popleft()[:size]
 
     def close(self):
+        self.framing.reset()
+        self.pending.clear()
+        self.stats['rndis_buffered_bytes'] = self.stats['rndis_expected_bytes'] = 0
         if self.control:
             try:
                 self.control.halt()

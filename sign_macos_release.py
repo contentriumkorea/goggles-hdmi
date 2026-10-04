@@ -23,17 +23,17 @@ def sign_release(package, key, configuration, output):
         stream.seek(0)
         digest = hashlib.file_digest(stream,'sha256').hexdigest()
     version = configuration['version']
-    name = f'Goggles-HDMI-macOS-arm64-{version}-preview.pkg'
+    name = f'Goggles-HDMI-macOS-arm64-{version}.pkg'
     release = {'product':configuration['product'],'version':version,'platform':'darwin','architecture':'arm64',
         'channel':'macos-preview','installer_kind':'pkg','installer_name':'setup.pkg',
         'size':package.stat().st_size,'sha256':digest,
-        'url':f'https://github.com/{configuration["github_repository"]}/releases/download/macos-arm64-v{version}-preview/{name}',
-        'notes':'Apple Silicon macOS preview · USB / 외부 출력 실기기 검증 전 · Apple 설치 프로그램 확인 필요'}
+        'url':f'https://github.com/{configuration["github_repository"]}/releases/download/macos-arm64-v{version}/{name}',
+        'notes':'Mac USB 분할 수신 처리 수정 · 실제 Mac에서 끊김 개선 재확인 필요 · Apple 설치 프로그램 확인 필요'}
     envelope = {'release':release,'signature':base64.b64encode(key.sign(canonical_release(release))).decode('ascii')}
     manifest = json.dumps(envelope,indent=2,ensure_ascii=False).encode('utf-8')
     output.mkdir(parents=True,exist_ok=True)
     (output/'release-macos-arm64.json').write_bytes(manifest)
-    bundle = output/f'Goggles-HDMI-macOS-arm64-{version}-preview.ghupdate'
+    bundle = output/f'Goggles-HDMI-macOS-arm64-{version}.ghupdate'
     with zipfile.ZipFile(bundle,'w',compression=zipfile.ZIP_STORED) as archive:
         archive.writestr('release.json',manifest)
         archive.write(package,'setup.pkg')

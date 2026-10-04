@@ -119,3 +119,33 @@ def test_reassembly_rejects_overlap_expires_and_bounds_resources():
     clock[0]=2
     a.receive(b'bad')
     assert not a.fragments and a.fragment_bytes==0
+
+
+def test_rndis_stream_preserves_every_header_and_body_split_and_prefix():
+    from usb_network import RNDISStream,rndis_packet
+    a,b=b'\0'*1514,b'b'*64
+    packet=rndis_packet(a)
+    for cut in range(1,len(packet)):
+        stream=RNDISStream()
+        assert stream.feed(packet[:cut])==[]
+        assert stream.feed(packet[cut:])==[a]
+        assert stream.feed(b'')==[] and stream.buffered_bytes==0
+    stream=RNDISStream()
+    second=rndis_packet(b)
+    assert stream.feed(aligned_message(a)+second[:25])==[a]
+    assert stream.feed(second[25:]+b'\0')==[b]
+    assert stream.feed(rndis_packet(b))==[b]
+
+
+def test_rndis_stream_bounds_partial_age_and_declared_length():
+    from usb_network import RNDISStream,RNDISFramingError,rndis_packet
+    clock=[0.0];stream=RNDISStream(clock=lambda:clock[0],partial_ttl=1,max_message=256)
+    packet=rndis_packet(b'a'*100)
+    assert stream.feed(packet[:32])==[]
+    clock[0]=1.1
+    with pytest.raises(RNDISFramingError,match='partial_timeout'):stream.feed(b'')
+    assert stream.buffered_bytes==0
+    bad=bytearray(packet[:8]);struct.pack_into('<I',bad,4,257)
+    with pytest.raises(RNDISFramingError,match='length_limit'):stream.feed(bad)
+    assert stream.buffered_bytes==0
+    assert stream.feed(packet)==[b'a'*100]

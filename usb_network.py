@@ -40,6 +40,76 @@ def rndis_frames(data):
     return frames
 
 
+class RNDISFramingError(ValueError):
+    def __init__(self,reason,*,buffered_bytes=0,expected_bytes=0):
+        self.reason = reason
+        self.buffered_bytes,self.expected_bytes = buffered_bytes,expected_bytes
+        super().__init__(reason)
+
+
+class RNDISStream:
+    """Reassemble partial PyUSB reads without guessing a new packet boundary."""
+    def __init__(self,*,max_message=1024*1024,partial_ttl=1,clock=time.monotonic):
+        self.max_message,self.partial_ttl,self.clock = max_message,partial_ttl,clock
+        self.buffer = bytearray()
+        self.partial_since = None
+        self.expected_bytes = 0
+
+    @property
+    def buffered_bytes(self):
+        return len(self.buffer)
+
+    def reset(self):
+        self.buffer.clear();self.partial_since = None;self.expected_bytes = 0
+
+    def _fail(self,reason):
+        error = RNDISFramingError(reason,buffered_bytes=len(self.buffer),expected_bytes=self.expected_bytes)
+        self.reset()
+        raise error
+
+    def feed(self,data):
+        now = self.clock()
+        if self.partial_since is not None and now-self.partial_since > self.partial_ttl:
+            self._fail('partial_timeout')
+        if len(data) > self.max_message or len(self.buffer)+len(data) > 2*self.max_message:
+            self._fail('buffer_limit')
+        self.buffer.extend(data)
+        ready = []
+        while self.buffer:
+            # Only between messages: never trim zeros from a partial body.
+            padding = len(self.buffer)-len(self.buffer.lstrip(b'\0'))
+            if padding:
+                del self.buffer[:padding]
+            if not self.buffer:
+                break
+            if len(self.buffer) >= 4 and struct.unpack_from('<I',self.buffer)[0] != 1:
+                self._fail('message_type')
+            if len(self.buffer) < 8:
+                break
+            length = struct.unpack_from('<I',self.buffer,4)[0]
+            self.expected_bytes = length
+            if not 44 <= length <= self.max_message:
+                self._fail('length_limit')
+            if len(self.buffer) < 44:
+                break
+            _,_,offset,size,oob,oob_size,oob_count,info,info_size,vc,reserved = struct.unpack_from('<11I',self.buffer)
+            start = 8+offset
+            if start < 44 or offset % 4 or size < 14 or start+size > length:
+                self._fail('data_bounds')
+            if any((oob,oob_size,oob_count,info,info_size,vc,reserved)):
+                self._fail('metadata')
+            if len(self.buffer) < length:
+                break
+            ready.append(bytes(self.buffer[start:start+size]))
+            del self.buffer[:length]
+            self.partial_since = None;self.expected_bytes = 0
+        if self.buffer and self.partial_since is None:
+            self.partial_since = now
+        elif not self.buffer:
+            self.partial_since = None;self.expected_bytes = 0
+        return ready
+
+
 class NetworkPeer:
     def __init__(self, local_ip, remote_ip, local_port, remote_port, mac, *,
                  clock=time.monotonic, max_assemblies=32, max_fragment_bytes=1024*1024, fragment_ttl=1):

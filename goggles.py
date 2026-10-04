@@ -149,6 +149,7 @@ def receive_session(stop, stats, state):
     session = secrets.randbelow(65536)
     window = ReceiveWindow(seed)
     stats['stage'] = 'decode'
+    stats['operation'] = 'decode_create'
     decoder = av.CodecContext.create('h264','r')
     decoder.thread_type = 'SLICE'
     decoder.thread_count = 4
@@ -157,6 +158,7 @@ def receive_session(stop, stats, state):
     recovery = RecoveryGate()
     with datagram_connection(stop,state,stats) as connection:
         stats['stage'] = 'session'
+        stats['operation'] = 'session_send'
         connection.send(make_packet(0,struct.pack('<H',seed)+SYN_TAIL,session))
         stats['sessions'] += 1
         state('고글 영상 연결 중 · 고글의 라이브뷰 공유가 켜져 있어야 합니다.')
@@ -166,6 +168,9 @@ def receive_session(stop, stats, state):
             now = time.monotonic()
             if now-last_ack >= .01:
                 stats['stage'] = 'video'
+                stats['operation'] = 'ack_send'
+                if last_ack:
+                    stats['max_ack_gap_ms'] = max(stats.get('max_ack_gap_ms',0),round((now-last_ack)*1000,3))
                 connection.send(build_ack(session,seed,window.cursor))
                 last_ack = now
             if now-last_video > 3:
@@ -176,6 +181,7 @@ def receive_session(stop, stats, state):
                 raise SupportError('GH-VIDEO-GAP','video')
             try:
                 stats['stage'] = 'video'
+                stats['operation'] = 'video_receive'
                 raw = connection.recv(65535)
             except socket.timeout:
                 continue
@@ -197,15 +203,17 @@ def receive_session(stop, stats, state):
             for data in ready_payloads:
                 stats['ordered_bytes'] = stats.get('ordered_bytes',0)+len(data)
                 stats['stage'] = 'decode'
+                stats['operation'] = 'decode_parse'
                 for packet in decoder.parse(data):
                     stats['parsed_frames'] = stats.get('parsed_frames',0)+1
                     try:
                         stats['stage'] = 'decode'
+                        stats['operation'] = 'decode_frame'
                         frames = decoder.decode(packet)
-                    except av.error.InvalidDataError:
+                    except av.error.InvalidDataError as exc:
                         # A reconnect can join a GOP before its SPS/IDR arrives.
                         stats['decode_errors'] = stats.get('decode_errors',0)+1
-                        record_issue(stats,'GH-DECODE','decode',active=False)
+                        record_issue(stats,'GH-DECODE','decode',SupportError('GH-DECODE','decode',exc,operation='decode_frame'),active=False)
                         recovery = RecoveryGate()
                         continue
                     for frame in frames:
@@ -213,9 +221,10 @@ def receive_session(stop, stats, state):
                             return
                         last_decoded = time.monotonic()
                         try:
+                            stats['operation'] = 'decode_recovery'
                             accepted = recovery.accept(frame.is_corrupt)
                         except ConnectionError as exc:
-                            raise SupportError('GH-DECODE','decode',exc) from exc
+                            raise SupportError('GH-DECODE','decode',exc,operation='decode_recovery') from exc
                         if not accepted:
                             stats['warmup_frames'] = stats.get('warmup_frames',0)+1
                             if recovery.count == 1:
@@ -237,6 +246,7 @@ def decode_goggles(stop, state=lambda message:None, stats=None, retry_delay=1):
         stats.setdefault(key,0)
     while not stop.is_set():
         try:
+            stats['session_attempts'] = stats.get('session_attempts',0)+1
             ready,message = usb_ready(stats)
             if stop.is_set():
                 return
@@ -249,7 +259,7 @@ def decode_goggles(stop, state=lambda message:None, stats=None, retry_delay=1):
             if stop.is_set():
                 return
             stats['retries'] += 1
-            issue = issue_from_exception(exc,stats.get('stage','discovery'))
+            issue = issue_from_exception(exc,stats.get('stage','discovery'),operation=stats.get('operation'))
             record = record_issue(stats,issue.code,issue.stage,issue)
             stats['last_error'] = record['code']
             state('['+record['code']+'] '+record['message'])

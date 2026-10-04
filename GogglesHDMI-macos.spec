@@ -1,13 +1,13 @@
 # Native Apple Silicon build; retain separate Windows spec.
 import json
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 release = json.loads(Path('release_config_macos.json').read_text())
 libusb = str(Path('build/macos/libusb-1.0.dylib').resolve())
 a = Analysis(['app.py'], pathex=[], binaries=[(libusb,'.')],
     datas=[('assets/fpv-drone.ico','assets'),('assets/contentrium-white.png','assets'),
-           ('release_config_macos.json','.'),('release_config.json','.')],
+           ('release_config_macos.json','.'),('release_config.json','.')]+collect_data_files('certifi'),
     hiddenimports=collect_submodules('usb'), hookspath=[], hooksconfig={},
     runtime_hooks=[], excludes=[], noarchive=False, optimize=0)
 pyz = PYZ(a.pure)

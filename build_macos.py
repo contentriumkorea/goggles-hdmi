@@ -36,7 +36,7 @@ def main():
     # Notices modify bundle resources, so re-sign only after collecting them.
     write_notices(bundle/'Contents/Resources')
     notices = bundle/'Contents/Resources/ThirdPartyNotices'
-    for package in ('pyusb',):
+    for package in ('pyusb','certifi'):
         distribution = importlib.metadata.distribution(package)
         for entry in distribution.files or []:
             if 'license' in entry.name.lower():
@@ -74,7 +74,7 @@ def main():
         raise SystemExit('Installer payload contains files outside the application bundle')
     info = {'version':configuration['version'],'architecture':'arm64','macos':platform.mac_ver()[0],
             'hardware_verified':False,'apple_signing':'ad-hoc app; unsigned pkg; not notarized',
-            'dependencies':{name:importlib.metadata.version(name) for name in ('PySide6','av','numpy','opencv-python-headless','cryptography','pyusb','pyinstaller')}}
+            'dependencies':{name:importlib.metadata.version(name) for name in ('PySide6','av','numpy','opencv-python-headless','cryptography','pyusb','pyinstaller','certifi')}}
     (release/'build-info.json').write_text(json.dumps(info,indent=2),encoding='utf-8')
 
 

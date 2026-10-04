@@ -14,9 +14,11 @@ Windows 10/11 x64용 최신 **1.2.0**은 연결 오류 코드와 문제 정보 �
 
 ## Apple Silicon macOS
 
-**arm64 1.2.1**은 **macOS 15.6 이상**을 사용하는 호환 Apple Silicon Mac을 대상으로 합니다. M1·M2·M3·M4 및 이후 호환 M 시리즈에 공통 설치 파일 하나를 사용합니다. 모든 Mac 모델을 실기기로 검증했다는 의미는 아닙니다. Intel Mac, Windows ARM, Linux는 이 릴리스에 포함되지 않습니다.
+**arm64 1.2.2**는 **macOS 15.6 이상**을 사용하는 호환 Apple Silicon Mac을 대상으로 합니다. M1·M2·M3·M4 및 이후 호환 M 시리즈에 공통 설치 파일 하나를 사용합니다. 모든 Mac 모델을 실기기로 검증했다는 의미는 아닙니다. Intel Mac, Windows ARM, Linux는 이 릴리스에 포함되지 않습니다.
 
-[Apple Silicon 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/macos-arm64-v1.2.1) · [설치·실기기 검증 안내](docs/macos-release-notes.md)
+[Apple Silicon 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/macos-arm64-v1.2.2) · [설치·실기기 검증 안내](docs/macos-release-notes.md)
+
+**1.2.2는 HTTPS 업데이트 인증서 오류를 수정하고 1.2.1의 USB 분할 수신 수정을 포함합니다.** `CERTIFICATE_VERIFY_FAILED`가 뜨는 이전 Mac 설치본은 브라우저로 새 pkg를 내려받아 한 번 수동 설치하세요. 인증서 검증을 끄지 않으며 프로그램에 포함된 신뢰 저장소로 업데이트 정보와 설치 파일을 검증합니다. 패키징된 앱의 실제 GitHub HTTPS 연결도 CI에서 확인합니다.
 
 **1.2.1 수정 후 실제 Mac의 끊김 개선 여부를 재확인해야 합니다.** USB 읽기가 패킷 중간에서 나뉠 때 불필요하게 재연결하던 처리 결함을 수정하고 진단 수치를 추가했습니다. 네이티브 CI는 ARM 의존성, 패키지 실행·영상 처리·분할 패킷 처리·Cocoa UI·클립보드를 검사합니다. 앱은 임시 ad-hoc 서명이며 설치 pkg에는 Apple Developer ID 서명·공증이 없습니다. macOS의 설치·실행 확인이 필요할 수 있습니다.
 

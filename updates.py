@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -12,7 +13,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
-from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPRedirectHandler, HTTPSHandler
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from licensing import CONFIG
@@ -188,7 +189,14 @@ class HTTPSRedirects(HTTPRedirectHandler):
 
 def open_https(url):
     request = Request(validate_https(url), headers={'User-Agent':'GogglesHDMI-Next/'+CONFIG['version']})
-    response = build_opener(HTTPSRedirects()).open(request, timeout=15)
+    handlers = [HTTPSRedirects()]
+    if sys.platform == 'darwin':
+        import certifi
+        # Frozen Python cannot rely on the publisher's OpenSSL CA paths.
+        # Explicit trust preserves chain and hostname verification on redirects too.
+        context = ssl.create_default_context(cafile=certifi.where())
+        handlers.append(HTTPSHandler(context=context))
+    response = build_opener(*handlers).open(request, timeout=15)
     validate_https(response.geturl())
     return response
 

@@ -59,6 +59,33 @@ def run(app,window,output):
         assert copied.startswith('Goggles HDMI support report\n')
         support = json.loads(copied.split('\n',1)[1])
         assert support['source_mode'] == 'idle'
+        # Exercise the actual frozen updater against the live signed GitHub feed
+        # and redirected package host, with no default interpreter CA available.
+        import certifi
+        import ssl
+        import tempfile
+        from licensing import CONFIG
+        from updates import open_https,parse_manifest,stage_online,verify_installer,MAX_MANIFEST
+        ca = Path(certifi.where())
+        assert ca.is_file() and ca.resolve().is_relative_to(Path(sys._MEIPASS).resolve().parent)
+        context = ssl.create_default_context(cafile=str(ca))
+        assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+        assert context.cert_store_stats()['x509_ca'] > 0
+        default_factory = ssl._create_default_https_context
+        ssl._create_default_https_context = lambda: ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        try:
+            with open_https(CONFIG['update_url']) as response:
+                release = parse_manifest(response.read(MAX_MANIFEST+1),current_version='0.0.0',
+                    require_newer=False,platform='darwin')
+            with tempfile.TemporaryDirectory(prefix='goggles-https-smoke-') as folder:
+                staged = stage_online(release,folder)
+                verify_installer(staged,platform='darwin')
+                report['https_download_bytes'] = staged.path.stat().st_size
+            report.update(https_feed=True,https_download=True,https_signature=True,
+                bundled_ca=True,ca_count=context.cert_store_stats()['x509_ca'],
+                https_feed_version=release['version'])
+        finally:
+            ssl._create_default_https_context = default_factory
         report.update(ok=True,decoded_frames=len(frames),pipeline=True,gui=True,qt_platform=app.platformName(),libusb=True,clipboard=True,partial_usb_stream=True)
         code = 0
     except Exception as exc:

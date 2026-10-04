@@ -274,18 +274,30 @@ def test_short_receive_stall_is_captured_without_manual_trace(tmp_path):
         assert hasattr(w, 'stutter'), 'Automatic capture must be connected to the live pipeline'
         w.incident_store = IncidentStore(tmp_path/'stutter-latest.json')
         w.mode = 'stream'
+        stall = threading.Event()
         def frames():
             for i in itertools.count():
                 if w.stop_event.is_set(): return
                 yield av.VideoFrame.from_ndarray(np.full((90,160,3),100,np.uint8),format='rgb24')
-                w.stop_event.wait(.22 if i==42 else 1/30)
+                if stall.is_set():
+                    stall.clear()
+                    w.stop_event.wait(.30)
+                else:
+                    w.stop_event.wait(1/30)
         w.worker = threading.Thread(target=w.receive_frames,args=(frames(),w.stop_event),daemon=True)
         w.worker.start()
-        for _ in range(250):
-            QTest.qWait(20)
-            time.sleep(.005)
+        deadline = time.monotonic()+10
+        injected = False
+        while time.monotonic() < deadline:
+            # qWait may hold the GIL on Cocoa and inflate every source interval,
+            # making a fixed short pause fall below the adaptive threshold.
+            qapp.processEvents()
+            time.sleep(.01)
+            if not injected and w.frames >= 42:
+                stall.set();injected = True
             if w.incident_store.path.exists(): break
-        assert w.incident_store.path.exists(), 'Completed stall evidence should be saved automatically'
+        assert injected, 'Source must warm up before the intentional pause'
+        assert w.incident_store.path.exists(), f'Completed stall evidence should be saved automatically: {w.stutter.status()}'
         report=json.loads(w.incident_store.path.read_text(encoding='utf-8'))
         assert report['incidents'][-1]['reason']=='receive'
         assert not w.trace.active and w.trace.report()['events']==[]

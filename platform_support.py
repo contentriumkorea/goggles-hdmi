@@ -53,11 +53,18 @@ def mac_window_state(window):
         pointer=ctypes.CFUNCTYPE(ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p)(address)
         integer=ctypes.CFUNCTYPE(ctypes.c_ulong,ctypes.c_void_p,ctypes.c_void_p)(address)
         boolean=ctypes.CFUNCTYPE(ctypes.c_bool,ctypes.c_void_p,ctypes.c_void_p)(address)
+        responds=ctypes.CFUNCTYPE(ctypes.c_bool,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p)(address)
         native=pointer(int(window.winId()),objc.sel_registerName(b'window'))
         if not native:return {}
-        return {'native_fullscreen':bool(integer(native,objc.sel_registerName(b'styleMask')) & (1<<14)),
+        state={'native_fullscreen_style':bool(integer(native,objc.sel_registerName(b'styleMask')) & (1<<14)),
                 'native_visible':bool(boolean(native,objc.sel_registerName(b'isVisible'))),
                 'native_minimized':bool(boolean(native,objc.sel_registerName(b'isMiniaturized')))}
+        # Qt 6.11.2 updates this getter at Cocoa DidEnter/DidExit notifications;
+        # styleMask alone changes before the fullscreen animation completes.
+        completed=objc.sel_registerName(b'qt_fullScreen')
+        if responds(native,objc.sel_registerName(b'respondsToSelector:'),completed):
+            state['native_fullscreen']=bool(boolean(native,completed))
+        return state
     except (OSError,ValueError,TypeError,AttributeError,RuntimeError):return {}
 
 

@@ -127,6 +127,7 @@ class OutputWindow(VideoSurface):
         self.fullscreen_repairs = 0
         self.output_generation = 0
         self.repair_generation = None
+        self.repair_deadline = 0
         super().__init__()
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setWindowTitle('Goggles HDMI — 영상 출력')
@@ -184,6 +185,16 @@ class OutputWindow(VideoSurface):
                 or self.windowHandle().screen()!=self.output_screen):
             self.state_observed.emit('repair_skipped')
             return
+        if sys.platform=='darwin' and QApplication.platformName()=='cocoa':
+            if time.monotonic()>=self.repair_deadline:
+                self.state_observed.emit('repair_skipped')
+                return
+            from platform_support import mac_window_state
+            native=mac_window_state(self)
+            if (native.get('native_fullscreen') is not False
+                    or native.get('native_fullscreen_style') is not False):
+                self.fullscreen_repair.start()
+                return
         self.fullscreen_repairs += 1
         self.showFullScreen()
         self.state_observed.emit('fullscreen_repair')
@@ -268,6 +279,7 @@ class OutputWindow(VideoSurface):
                 if (self.locked and event.oldState() & Qt.WindowFullScreen and not self.isFullScreen()
                         and not self.fullscreen_repairs):
                     self.repair_generation=self.output_generation
+                    self.repair_deadline=time.monotonic()+5
                     self.fullscreen_repair.start()
             elif self.locked and self.isMinimized():
                 QTimer.singleShot(0, self.restore_minimized)
@@ -849,7 +861,7 @@ class MainWindow(QMainWindow):
             fullscreen_repairs=self.output.fullscreen_repairs,release_reason=self.output_release_reason,
             geometry=[geometry.x(),geometry.y(),geometry.width(),geometry.height()])
         self.support_output['refresh_hz']=target.refreshRate() if target in screens else 0
-        for key in ('native_fullscreen','native_visible','native_minimized'):self.support_output.pop(key,None)
+        for key in ('native_fullscreen','native_fullscreen_style','native_visible','native_minimized'):self.support_output.pop(key,None)
         if sys.platform=='darwin' and handle:
             from platform_support import mac_window_state
             self.support_output.update(mac_window_state(self.output))

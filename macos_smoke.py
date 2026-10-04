@@ -94,6 +94,7 @@ def run(app,window,output):
         report['stage']='fullscreen_enter'
         window.open_output()
         wait_native(lambda:mac_window_state(window.output).get('native_fullscreen') is True)
+        report['fullscreen_enter_state']=mac_window_state(window.output)
         report['stage']='clipboard_fullscreen'
         window.copy_problem_button.click()
         current=json.loads(app.clipboard().text().split('\n',1)[1])['output']
@@ -102,10 +103,16 @@ def run(app,window,output):
         # Leaving native fullscreen used to retain a locked but windowed output.
         report['stage']='fullscreen_repair'
         window.output.showNormal()
+        # DidEnter from the original entry remains true while exiting. Observe
+        # DidExit before accepting a new completed entry as the repair result.
+        wait_native(lambda:mac_window_state(window.output).get('native_fullscreen') is False)
+        report['fullscreen_exit_state']=mac_window_state(window.output)
         wait_native(lambda:window.output.fullscreen_repairs==1 and mac_window_state(window.output).get('native_fullscreen') is True)
+        report['fullscreen_repair_state']=mac_window_state(window.output)
         report['stage']='escape_release'
         QTest.keyClick(window.output,Qt.Key_Escape)
-        wait_native(lambda:not window.output.isVisible() and not window.output.locked)
+        wait_native(lambda:not window.output.isVisible() and not window.output.locked
+            and mac_window_state(window.output).get('native_visible') is False)
         QTest.qWait(400)
         assert not window.output.isVisible() and not window.output.fullscreen_repair.isActive()
         report['stage']='clipboard_release'

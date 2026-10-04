@@ -58,7 +58,7 @@ def safe_output(value):
     if not isinstance(value,dict):return {}
     result={key:number for key in ('width','height','refresh_hz','dpr','screen_count','window_state','fullscreen_repairs')
             if type(number:=value.get(key)) in (int,float) and math.isfinite(number) and 0<=number<=100000}
-    for key in ('locked','visible','fullscreen','minimized','pending','native_fullscreen','native_visible','native_minimized'):
+    for key in ('locked','visible','fullscreen','minimized','pending','native_fullscreen','native_fullscreen_style','native_visible','native_minimized'):
         if type(value.get(key)) is bool:result[key]=value[key]
     for key in ('index','requested_screen','actual_screen'):
         if type(number:=value.get(key)) is int and -1<=number<=31:result[key]=number

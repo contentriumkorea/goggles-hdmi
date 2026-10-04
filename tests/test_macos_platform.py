@@ -196,3 +196,71 @@ def test_removed_screen_query_returns_unknown_instead_of_using_deleted_object():
     class Screen:
         def geometry(self):raise RuntimeError('Internal C++ object already deleted')
     assert mac_display_info(Screen(),snapshot=[])=={'pixels':None,'reason':'native_query_failed'}
+
+
+def test_native_fullscreen_distinguishes_completed_transition_from_style(monkeypatch):
+    import ctypes,types
+    from platform_support import mac_window_state
+    from PySide6.QtWidgets import QApplication
+    monkeypatch.setattr(QApplication,'platformName',staticmethod(lambda:'cocoa'))
+    state={'supported':True,'completed':False}
+    class Selector:
+        def __call__(self,name):return name
+    objc=types.SimpleNamespace(sel_registerName=Selector(),objc_msgSend=object())
+    monkeypatch.setattr(ctypes,'CDLL',lambda *_:objc)
+    monkeypatch.setattr(ctypes,'cast',lambda *_:types.SimpleNamespace(value=123))
+    calls=[]
+    def send(receiver,selector,*arguments):
+        calls.append((selector,arguments))
+        if selector==b'window':return 2
+        if selector==b'styleMask':return 1<<14
+        if selector==b'respondsToSelector:':
+            assert arguments==(b'qt_fullScreen',)
+            return state['supported']
+        if selector==b'qt_fullScreen':return state['completed']
+        if selector==b'isVisible':return True
+        if selector==b'isMiniaturized':return False
+        raise AssertionError(selector)
+    monkeypatch.setattr(ctypes,'CFUNCTYPE',lambda *signature:lambda address:send)
+    class Window:
+        def winId(self):return 1
+    current=mac_window_state(Window())
+    assert current['native_fullscreen_style'] is True and current['native_fullscreen'] is False
+    state['completed']=True
+    assert mac_window_state(Window())['native_fullscreen'] is True
+    state['supported']=False;calls.clear()
+    current=mac_window_state(Window())
+    assert 'native_fullscreen' not in current and current['native_fullscreen_style'] is True
+    assert not any(selector==b'qt_fullScreen' for selector,_ in calls)
+
+
+def test_cocoa_repair_waits_for_completed_exit_with_bounded_deadline(monkeypatch):
+    import app,platform_support,time
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+    output=app.OutputWindow()
+    monkeypatch.setattr(app.sys,'platform','darwin')
+    monkeypatch.setattr(QApplication,'platformName',staticmethod(lambda:'cocoa'))
+    monkeypatch.setattr(QApplication,'applicationState',staticmethod(lambda:Qt.ApplicationActive))
+    state={'native_fullscreen':True,'native_fullscreen_style':True}
+    monkeypatch.setattr(platform_support,'mac_window_state',lambda *_:state)
+    try:
+        output.winId();output.output_screen=QApplication.primaryScreen()
+        output.locked=True;output.repair_generation=output.output_generation
+        output.repair_deadline=time.monotonic()+5
+        monkeypatch.setattr(output,'isVisible',lambda:True)
+        monkeypatch.setattr(output,'isFullScreen',lambda:False)
+        calls=[];monkeypatch.setattr(output,'showFullScreen',lambda:calls.append('show'))
+        output.repair_fullscreen()
+        assert not calls and output.fullscreen_repairs==0 and output.fullscreen_repair.isActive()
+        state={'native_fullscreen':False,'native_fullscreen_style':False}
+        output.fullscreen_repair.stop();output.repair_fullscreen()
+        assert calls==['show'] and output.fullscreen_repairs==1
+        output.fullscreen_repairs=0;output.repair_deadline=time.monotonic()-1
+        state={'native_fullscreen':True,'native_fullscreen_style':True}
+        output.repair_fullscreen()
+        assert calls==['show'] and not output.fullscreen_repair.isActive()
+        state={'native_fullscreen':False,'native_fullscreen_style':False}
+        output.repair_fullscreen()
+        assert calls==['show'] and output.fullscreen_repairs==0
+    finally:output.release();output.close()

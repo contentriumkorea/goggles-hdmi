@@ -4,9 +4,9 @@ DJI Goggles 3 / Avata 2의 라이브뷰를 USB로 받아 색보정·안정화 �
 
 ## Windows
 
-Windows 10/11 x64용 기존 **1.1.0**은 계속 다운로드할 수 있습니다. **1.2.0**은 연결 오류 코드와 문제 정보 복사 기능을 추가한 새 설치 버전입니다.
+Windows 10/11 x64용 최신 **1.2.0**은 연결 오류 코드와 문제 정보 복사 기능을 제공합니다. 기존 **1.1.0**도 계속 다운로드할 수 있습니다.
 
-[기존 Windows 1.1.0 설치 파일](https://github.com/contentriumkorea/goggles-hdmi/releases/download/v1.1.0/Goggles-HDMI-Setup-1.1.0.exe) · [Windows 최신 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/latest)
+[Windows 1.2.0 설치 파일](https://github.com/contentriumkorea/goggles-hdmi/releases/download/v1.2.0/Goggles-HDMI-Setup-1.2.0.exe) · [Windows 최신 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/latest) · [기존 Windows 1.1.0 릴리스](https://github.com/contentriumkorea/goggles-hdmi/releases/tag/v1.1.0)
 
 기존 Windows 앱의 서명된 `releases/latest/download/release.json` 업데이트 경로는 Windows 설치 파일만 제공합니다. Mac 설치 파일은 이 경로를 사용하지 않습니다.
 
